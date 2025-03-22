@@ -1,8 +1,8 @@
 services:
   network-server:
     build:
-      context: ./network-sync-server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./network-sync-server/Dockerfile
       args:
         BUILDKIT_INLINE_CACHE: 0
     restart: unless-stopped
