@@ -27,13 +27,6 @@ jobs:
           cd network-sync-server
           cargo build --release
 
-      - name: Upload server artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: network-sync-server
-          path: network-sync-server/target/release/network-sync-server
-          if-no-files-found: error
-
   build-mod:
     strategy:
       fail-fast: false
