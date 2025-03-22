@@ -38,12 +38,14 @@ dependencies = []
 # Native libraries (e.g. DLLs) and the functions they export.
 native_libraries = [
     { name = "network_sync_runtime", funcs = [
+        "NetworkSyncGenerateUUID",
         "NetworkSyncInit",
         "NetworkSyncConnect",
         "NetworkSyncJoinSession",
         "NetworkSyncLeaveSession",
+        "NetworkSyncRegisterActor",
         "NetworkSyncGetClientId",
-        "NetworkSyncEmitActorData",
+        "NetworkSyncSendActorUpdate",
         "NetworkSyncGetRemoteActorIDs",
         "NetworkSyncGetRemoteActorData",
         "NetworkSyncEmitMessage",

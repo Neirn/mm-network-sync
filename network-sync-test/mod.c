@@ -3,6 +3,8 @@
 #include "recomputils.h"
 #include "string.h"
 
+#define UUID_STRING_LENGTH 37
+
 #ifdef _DEBUG
     #define SERVER_URL "ws://localhost:8080"
 #else
@@ -15,10 +17,10 @@ RECOMP_IMPORT("mm_network_sync", void NS_Init());
 RECOMP_IMPORT("mm_network_sync", u8 NS_Connect(const char* host));
 RECOMP_IMPORT("mm_network_sync", u8 NS_JoinSession(const char* session));
 RECOMP_IMPORT("mm_network_sync", u8 NS_LeaveSession());
-RECOMP_IMPORT("mm_network_sync", void NS_SyncActor(Actor* actor, const char* playerId, int isOwnedLocally));
+RECOMP_IMPORT("mm_network_sync", void NS_SyncActor(Actor* actor, const char* actorId, int isOwnedLocally));
 RECOMP_IMPORT("mm_network_sync", const char* NS_GetActorNetworkId(Actor *actor));
-RECOMP_IMPORT("mm_network_sync", u32 NS_GetRemoteActorIDs(u32 maxPlayers, char* idsBuffer, u32 idBufferSize));
-RECOMP_IMPORT("mm_network_sync", u32 NS_GetRemoteActorData(const char* playerID, void* dataBuffer));
+RECOMP_IMPORT("mm_network_sync", u32 NS_GetRemoteActorIDs(u32 maxActors, char* idsBuffer, u32 idBufferSize));
+RECOMP_IMPORT("mm_network_sync", u32 NS_GetRemoteActorData(const char* actorID, void* dataBuffer));
 
 RECOMP_IMPORT("mm_network_sync", u8 NS_RegisterMessageHandler(const char* messageId, u32 payloadSize, void* callback));
 RECOMP_IMPORT("mm_network_sync", u8 NS_EmitMessage(const char* messageId, void* data));
@@ -34,13 +36,13 @@ void remote_actors_update(PlayState* play);
 
 #define MSG_ITEM_USED "item_used"
 
-typedef struct { u32 dummy_data; } SpinAttackedMessage;
+typedef struct { u32 dummy_data; } ItemUsedMessage;
 
 void handle_item_used_message(void* data) {
-    SpinAttackedMessage* msg = (SpinAttackedMessage*)data;
+    ItemUsedMessage* msg = (ItemUsedMessage*)data;
     Notifications_Emit(
         "", // Prefix (Purple)
-        "Remote user used item", // Main Message (white)
+        "Remote actor used item", // Main Message (white)
         "" // Suffix (Blue)
     );
 }
@@ -53,6 +55,7 @@ s16 ACTOR_REMOTE_PLAYER = ACTOR_ID_MAX;
 // MARK: - Events
 
 u8 has_connected = 0;
+u8 has_loaded_save = 0;
 
 RECOMP_CALLBACK("*", recomp_on_init)
 void init_runtime() {
@@ -62,7 +65,7 @@ void init_runtime() {
     ACTOR_REMOTE_PLAYER = CustomActor_Register(&RemotePlayer_InitVars);
 
     // Register message handlers
-    NS_RegisterMessageHandler(MSG_ITEM_USED, sizeof(SpinAttackedMessage), handle_item_used_message);
+    NS_RegisterMessageHandler(MSG_ITEM_USED, sizeof(ItemUsedMessage), handle_item_used_message);
 }
 
 RECOMP_CALLBACK("*", recomp_on_play_init)
@@ -113,34 +116,49 @@ void on_play_main(PlayState* play) {
 
 // MARK: - Hooks
 
+RECOMP_HOOK("FileSelect_LoadGame")
+void OnFileSelect_LoadGame(PlayState* play) {
+    recomp_printf("FileSelect_LoadGame called\n");
+    has_loaded_save = 1;
+}
+
 RECOMP_HOOK("Player_Init")
 void OnPlayerInit(Actor* thisx, PlayState* play) {
+    if (!has_loaded_save) return;
+
     recomp_printf("Player initialized\n");
     NS_SyncActor(thisx, NULL, 1);
 }
 
 RECOMP_HOOK("Player_UseItem")
 void OnPlayer_UseItem(PlayState* play, Player* this, ItemId item) {
-    SpinAttackedMessage msg;
+    if (!has_loaded_save) return;
+    
+    ItemUsedMessage msg;
     msg.dummy_data = 7;
     recomp_printf("Player_UseItem called\n");
     NS_EmitMessage(MSG_ITEM_USED, &msg);
 }
 
-// MARK: - Remote Player Actor Processing
+// MARK: - Remote Actor Processing
 
-#define MAX_REMOTE_PLAYERS 32 // matches the mod's MAX_SYNCED_ACTORS
-static char remotePlayerIds[MAX_REMOTE_PLAYERS][64];
-static u32 remotePlayerCount = 0;
+#define MAX_REMOTE_ACTORS 32 // matches the mod's MAX_SYNCED_ACTORS
+static char remoteActorIds[MAX_REMOTE_ACTORS][UUID_STRING_LENGTH];
+static u32 remoteActorCount = 0;
 
 // Checks whether we need to create or destroy actors
 void remote_actors_update(PlayState* play) {
-    remotePlayerCount = NS_GetRemoteActorIDs(MAX_REMOTE_PLAYERS, (char*)remotePlayerIds, 64);
-    recomp_printf("Remote player count: %d\n", remotePlayerCount);
+    // Clear the buffer to avoid garbage values
+    memset(remoteActorIds, 0, sizeof(remoteActorIds));
+    
+    // Call with the proper buffer size parameter (UUID_STRING_LENGTH)
+    remoteActorCount = NS_GetRemoteActorIDs(MAX_REMOTE_ACTORS, (char*)remoteActorIds, UUID_STRING_LENGTH);
+    
+    recomp_printf("Remote actor count: %d\n", remoteActorCount);
 
-    // Create actors for new remote players (only if we have any)
-    for (u32 i = 0; i < remotePlayerCount; i++) {
-        // 1. Check if player already has an actor
+    // Create actors for new remote entities (only if we have any)
+    for (u32 i = 0; i < remoteActorCount; i++) {
+        // 1. Check if entity already has an actor
         bool remoteActorAlreadyCreated = false;
         Actor* actor = play->actorCtx.actorLists[ACTORCAT_PLAYER].first;
 
@@ -148,9 +166,9 @@ void remote_actors_update(PlayState* play) {
         while (actor != NULL) {
             if (actor->id == ACTOR_REMOTE_PLAYER) {
                 const char* actorNetworkId = NS_GetActorNetworkId(actor);
-                const char* playerId = remotePlayerIds[i];
+                const char* remoteId = remoteActorIds[i];
 
-                if (actorNetworkId != NULL && strcmp(actorNetworkId, playerId) == 0) {
+                if (actorNetworkId != NULL && remoteId != NULL && strcmp(actorNetworkId, remoteId) == 0) {
                     remoteActorAlreadyCreated = true;
                     break;
                 }
@@ -161,14 +179,14 @@ void remote_actors_update(PlayState* play) {
 
         // 2. If actor not found, create new actor
         if (!remoteActorAlreadyCreated) {
-            const char* playerId = remotePlayerIds[i];
-            recomp_printf("Creating actor for player %s\n", playerId);
+            const char* remoteId = remoteActorIds[i];
+            recomp_printf("Creating actor for remote entity %s\n", remoteId);
             actor = Actor_SpawnAsChildAndCutscene(&play->actorCtx, play, ACTOR_REMOTE_PLAYER, -9999.0f, -9999.0f, -9999.0f, 0, 0, 0, 0, 0, 0, 0);
-            NS_SyncActor(actor, playerId, 0);
+            NS_SyncActor(actor, remoteId, 0);
         }
     }
 
-    // Check for players that no longer exist and remove their actors
+    // Check for entities that no longer exist and remove their actors
     Actor* actor = play->actorCtx.actorLists[ACTORCAT_PLAYER].first;
     while (actor != NULL) {
         Actor* next = actor->next; // Save next pointer as we may delete this actor
@@ -177,27 +195,23 @@ void remote_actors_update(PlayState* play) {
             const char* actorNetworkId = NS_GetActorNetworkId(actor);
             if (actorNetworkId == NULL) {
                 Actor_Kill(actor);
-                recomp_printf("Removed remote player with NULL ID\n");
+                recomp_printf("Removed remote actor with NULL ID\n");
             } else {
                 bool stillExists = false;
 
-                // Only check if there are remote players to compare against
-                if (remotePlayerCount > 0) {
-                    for (u32 i = 0; i < remotePlayerCount; i++) {
-                        if (strcmp(actorNetworkId, remotePlayerIds[i]) == 0) {
+                // Only check if there are remote actors to compare against
+                if (remoteActorCount > 0) {
+                    for (u32 i = 0; i < remoteActorCount; i++) {
+                        if (remoteActorIds[i][0] != '\0' && strcmp(actorNetworkId, remoteActorIds[i]) == 0) {
                             stillExists = true;
                             break;
                         }
                     }
-                } else {
-                    // If there are no remote players, this actor definitely doesn't exist anymore
-                    stillExists = false;
-                    recomp_printf("No remote players exist, removing actor with ID %s\n", actorNetworkId);
                 }
 
                 if (!stillExists) {
                     Actor_Kill(actor);
-                    recomp_printf("Removed remote player %s\n", actorNetworkId);
+                    recomp_printf("Removed remote actor %s\n", actorNetworkId);
                 }
             }
         }

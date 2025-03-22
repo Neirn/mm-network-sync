@@ -1,14 +1,15 @@
-mod messages;
 mod network;
-mod types;
 mod utils;
 
 use env_logger::Builder;
 use n64_recomp::{mem_bu, mem_bu_write, N64MemoryIO, RecompContext};
 use network::get_network_sync;
+use network_sync_rs::ActorGameData;
 use std::panic;
-use types::ActorData;
 use utils::{execute_safely, with_network_sync, with_network_sync_mut};
+use uuid::Uuid;
+
+const UUID_STRING_LENGTH: usize = 37; // 36 chars + null termina
 
 // C - API
 
@@ -162,13 +163,34 @@ pub extern "C" fn NetworkSyncLeaveSession(_rdram: *mut u8, ctx: *mut RecompConte
 }
 
 #[no_mangle]
-pub extern "C" fn NetworkSyncEmitActorData(rdram: *mut u8, ctx: *mut RecompContext) {
-    execute_safely(ctx, "NetworkSyncEmitActorData", |ctx| {
-        let addr = ctx.get_arg_u64(0);
-        let player_data = unsafe { ActorData::read_from_mem(ctx, rdram, addr) };
+pub extern "C" fn NetworkSyncRegisterActor(rdram: *mut u8, ctx: *mut RecompContext) {
+    execute_safely(ctx, "NetworkSyncRegisterActor", |ctx| {
+        let actor_id = unsafe { ctx.get_arg_string(rdram, 0) };
 
         let result = with_network_sync_mut(
-            |module| match module.send_actor_sync(&player_data) {
+            |module| match module.register_actor(actor_id.clone()) {
+                Ok(_) => 1i32,
+                Err(e) => {
+                    log::error!("Failed to register actor {}: {}", actor_id, e);
+                    0i32
+                }
+            },
+            0i32,
+        );
+
+        ctx.set_return(result);
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn NetworkSyncSendActorUpdate(rdram: *mut u8, ctx: *mut RecompContext) {
+    execute_safely(ctx, "NetworkSyncSendActorUpdate", |ctx| {
+        let actor_id = unsafe { ctx.get_arg_string(rdram, 0) };
+        let addr = ctx.get_arg_u64(1);
+        let actor_data = unsafe { ActorGameData::read_from_mem(ctx, rdram, addr) };
+
+        let result = with_network_sync_mut(
+            |module| match module.send_actor_update(actor_id, actor_data) {
                 Ok(_) => 1i32,
                 Err(e) => {
                     log::error!("Failed to send actor sync: {}", e);
@@ -193,19 +215,51 @@ pub extern "C" fn NetworkSyncGetRemoteActorIDs(rdram: *mut u8, ctx: *mut RecompC
             |module| {
                 let mut count = 0;
 
-                if max_players > 0 {
-                    let actor_ids: Vec<&String> = module.remote_actors.keys().collect();
-                    let str_refs: Vec<&str> = actor_ids.iter().map(|s| s.as_str()).collect();
+                if max_players > 0 && id_buffer_size >= UUID_STRING_LENGTH as u32 {
+                    // Filter to only include actors owned by other clients
+                    let remote_owned: Vec<&str> = module
+                        .remote_actors
+                        .iter()
+                        .filter(|(_, actor)| actor.owner_id != module.client_id)
+                        .map(|(id, _)| id.as_str())
+                        .collect();
 
-                    unsafe {
-                        count = ctx.write_string_array_to_mem(
-                            rdram,
-                            ids_buffer,
-                            &str_refs,
-                            id_buffer_size as usize,
-                            max_players as usize,
-                        ) as i32;
+                    log::debug!("Found {} remote actors", remote_owned.len());
+
+                    // Write each ID to the buffer as a 2D array [max_players][id_buffer_size]
+                    let mut written_ids = 0;
+                    for (idx, actor_id) in remote_owned.iter().enumerate() {
+                        if idx >= max_players as usize {
+                            break;
+                        }
+
+                        // Calculate offset in the buffer for this ID (idx * id_buffer_size)
+                        let offset = idx as u64 * id_buffer_size as u64;
+
+                        unsafe {
+                            // Write the ID string to the buffer with proper null termination
+                            let written = ctx.write_string_to_mem(
+                                rdram,
+                                ids_buffer + offset,
+                                actor_id,
+                                id_buffer_size as usize,
+                            );
+
+                            if written > 0 {
+                                written_ids += 1;
+                            } else {
+                                log::warn!("Failed to write actor ID '{}' to buffer", actor_id);
+                            }
+                        }
                     }
+
+                    count = written_ids;
+                } else if max_players > 0 {
+                    log::warn!(
+                        "Buffer size too small: id_buffer_size={}, needed={}",
+                        id_buffer_size,
+                        UUID_STRING_LENGTH
+                    );
                 }
 
                 count
@@ -226,12 +280,14 @@ pub extern "C" fn NetworkSyncGetRemoteActorData(rdram: *mut u8, ctx: *mut Recomp
         let success = with_network_sync(
             |module| {
                 if let Some(remote_player) = module.remote_actors.get(&actor_id) {
-                    unsafe {
-                        remote_player
-                            .data
-                            .write_to_mem(ctx, rdram, data_buffer_addr);
+                    if let Some(data) = &remote_player.data {
+                        unsafe {
+                            data.write_to_mem(ctx, rdram, data_buffer_addr);
+                        }
+                        1i32
+                    } else {
+                        0i32
                     }
-                    1i32
                 } else {
                     0i32
                 }
@@ -259,7 +315,7 @@ pub extern "C" fn NetworkSyncEmitMessage(rdram: *mut u8, ctx: *mut RecompContext
         }
 
         let result = with_network_sync_mut(
-            |module| match module.send_message(&message_id, data) {
+            |module| match module.send_registered_message(&message_id, data) {
                 Ok(_) => 1i32,
                 Err(e) => {
                     log::error!("Failed to send message {}: {}", message_id, e);
@@ -321,5 +377,21 @@ pub extern "C" fn NetworkSyncGetMessage(rdram: *mut u8, ctx: *mut RecompContext)
         }
 
         ctx.set_return(if message_id.is_some() { 1i32 } else { 0i32 });
+    });
+}
+
+// MARK: - Utils
+
+#[no_mangle]
+pub extern "C" fn NetworkSyncGenerateUUID(rdram: *mut u8, ctx: *mut RecompContext) {
+    execute_safely(ctx, "NetworkSyncGenerateUUID", |ctx| {
+        let uuid_buffer = ctx.get_arg_u64(0);
+
+        let uuid = Uuid::new_v4().to_string();
+
+        let success =
+            unsafe { ctx.write_string_to_mem(rdram, uuid_buffer, &uuid, UUID_STRING_LENGTH) > 0 };
+
+        ctx.set_return(if success { 1i32 } else { 0i32 });
     });
 }

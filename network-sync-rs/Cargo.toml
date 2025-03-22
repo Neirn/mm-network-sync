@@ -1,0 +1,10 @@
+[package]
+name = "network-sync-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4"
+n64-recomp = { path = "../deps/n64-recomp/n64-recomp" }
+serde = { version = "1.0.218", features = ["derive"] }
+serde_json = "1.0"

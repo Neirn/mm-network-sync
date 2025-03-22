@@ -1,17 +1,16 @@
 use anyhow::Result;
 use gamecore::network::NetworkModule;
+use network_sync_rs::messages::{
+    get_message_type, BasicMessageType, ClientActorUpdateMessage, ClientBasicMessage, ClientJoinSessionMessage,
+    ClientRegisterActorMessage, MessageType, RegisteredMessage, ServerSyncSessionMessage,
+    ServerWelcomeMessage,
+};
+use network_sync_rs::{Actor, ActorGameData};
 use serde_json;
 use std::collections::{HashMap, VecDeque};
 use std::panic;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Instant;
 use tokio::runtime::Runtime;
-
-use crate::messages::{
-    ActorSyncMessage, JoinSessionMessage, LeaveSessionMessage, RegisteredMessage,
-    ServerMessage,
-};
-use crate::types::{ActorData, RemoteActorData};
 
 // Global singleton instances
 pub static NETWORK_PLAY: OnceLock<Arc<Mutex<NetworkSyncModule>>> = OnceLock::new();
@@ -35,8 +34,10 @@ pub struct NetworkSyncModule {
     connected: bool,
     pub client_id: String,
     current_session_id: Option<String>,
-    session_members: Vec<String>,
-    pub remote_actors: HashMap<String, RemoteActorData>,
+    remote_members: Vec<String>,
+    pub remote_actors: HashMap<String, Actor>,
+    // Track local actors that we own
+    local_actors: Vec<String>,
     /// Queue of (message_id, data) tuples
     pub message_queue: VecDeque<(String, Vec<u8>)>,
 }
@@ -48,8 +49,9 @@ impl NetworkSyncModule {
             connected: false,
             client_id: "".to_string(),
             current_session_id: None,
-            session_members: Vec::new(),
+            remote_members: Vec::new(),
             remote_actors: HashMap::new(),
+            local_actors: Vec::new(),
             message_queue: VecDeque::new(),
         }
     }
@@ -76,22 +78,12 @@ impl NetworkSyncModule {
         let runtime = get_tokio_runtime();
         runtime.block_on(async { self.network.connect(url).await })?;
 
-        self.connected = true;
-
         Ok(())
     }
 
     // Join a specific game session
     pub fn join_session(&mut self, session_id: &str) -> Result<()> {
-        if !self.connected {
-            return Err(anyhow::anyhow!("Not connected to server"));
-        }
-
-        // Create join session message
-        let join_msg = JoinSessionMessage {
-            event_type: "join_session".to_string(),
-            session_id: session_id.to_string(),
-        };
+        let join_msg = ClientJoinSessionMessage::new(session_id.to_string());
 
         // Send join request using the tokio runtime
         let json = serde_json::to_string(&join_msg)?;
@@ -112,10 +104,7 @@ impl NetworkSyncModule {
         }
 
         if let Some(session_id) = &self.current_session_id {
-            let leave_msg = LeaveSessionMessage {
-                event_type: "leave_session".to_string(),
-            };
-
+            let leave_msg = ClientBasicMessage::new(BasicMessageType::LeaveSession);
             let json = serde_json::to_string(&leave_msg)?;
 
             // Send message using the tokio runtime
@@ -124,6 +113,11 @@ impl NetworkSyncModule {
 
             // Update local state - will be confirmed by server response
             log::info!("Sent request to leave session: {}", session_id);
+
+            // Clear session state
+            self.current_session_id = None;
+            self.remote_members.clear();
+            self.remote_actors.clear();
         }
 
         Ok(())
@@ -141,23 +135,73 @@ impl NetworkSyncModule {
 
         self.connected = false;
         self.current_session_id = None;
-        self.session_members.clear();
+        self.remote_members.clear();
+        self.remote_actors.clear();
+
+        Ok(())
+    }
+
+    pub fn register_actor(&mut self, actor_id: String) -> Result<()> {
+        if !self.connected {
+            return Err(anyhow::anyhow!("Not connected"));
+        }
+
+        // Check if we've already registered this actor locally
+        if self.local_actors.contains(&actor_id) {
+            log::debug!(
+                "Actor {} already registered locally, skipping registration",
+                actor_id
+            );
+            return Ok(());
+        }
+
+        // Check if this actor is in remote_actors - we should never try to register a remote actor
+        if self.remote_actors.contains_key(&actor_id) {
+            log::warn!("Attempted to register remote actor {} - REJECTED", actor_id);
+            return Err(anyhow::anyhow!("Cannot register a remote actor"));
+        }
+
+        log::debug!("Registering actor {} with server", actor_id);
+        let register_msg = ClientRegisterActorMessage::new(actor_id.clone());
+        let json = serde_json::to_string(&register_msg)?;
+
+        let runtime = get_tokio_runtime();
+        runtime.block_on(async { self.network.send_message(&json).await })?;
+
+        // Add to our local actors list
+        self.local_actors.push(actor_id);
 
         Ok(())
     }
 
     // Sends an actor sync event
-    pub fn send_actor_sync(&mut self, player_data: &ActorData) -> Result<()> {
+    pub fn send_actor_update(&mut self, actor_id: String, actor_data: ActorGameData) -> Result<()> {
         if !self.connected {
             return Err(anyhow::anyhow!("Not connected"));
         }
 
-        let player_update_msg = ActorSyncMessage {
-            event_type: "actor_sync".to_string(),
-            sender_id: self.client_id.clone(),
-            data: player_data.clone(),
-        };
+        // Check if we're trying to update an actor that's in the remote_actors list
+        // This would be an error - we should never update actors we don't own
+        if self.remote_actors.contains_key(&actor_id) {
+            log::warn!(
+                "Attempted to send update for remote actor {} that we don't own",
+                actor_id
+            );
+            return Err(anyhow::anyhow!("Cannot update remote actor"));
+        }
 
+        // Make sure it's in our local_actors list
+        if !self.local_actors.contains(&actor_id) {
+            log::debug!("Auto-registering actor {} before update", actor_id);
+            self.register_actor(actor_id.clone())?;
+        }
+
+        // Extra ownership verification
+        if self.current_session_id.is_none() {
+            return Err(anyhow::anyhow!("Not in any session"));
+        }
+
+        let player_update_msg = ClientActorUpdateMessage::new(actor_id, actor_data);
         let json = serde_json::to_string(&player_update_msg)?;
 
         // Send player data to the server
@@ -168,19 +212,13 @@ impl NetworkSyncModule {
     }
 
     // Send a message to other clients
-    pub fn send_message(&mut self, message_id: &str, data: Vec<u8>) -> Result<()> {
+    pub fn send_registered_message(&mut self, message_id: &str, data: Vec<u8>) -> Result<()> {
         if !self.connected {
             return Err(anyhow::anyhow!("Not connected"));
         }
 
         if let Some(session_id) = &self.current_session_id {
-            let msg = RegisteredMessage {
-                event_type: "registered_message".to_string(),
-                sender_id: self.client_id.clone(),
-                message_id: message_id.to_string(),
-                data,
-            };
-
+            let msg = RegisteredMessage::new(message_id.to_string(), data);
             let json = serde_json::to_string(&msg)?;
 
             // Send message to the server
@@ -228,90 +266,109 @@ impl NetworkSyncModule {
 }
 
 // Separate function to process messages that can safely access the global singleton
-fn process_network_message(message: &str) -> Result<()> {
+pub fn process_network_message(message: &str) -> Result<()> {
     // Check if the message is empty or just whitespace
     if message.trim().is_empty() {
         log::debug!("Received empty message, ignoring");
         return Ok(());
     }
 
-    // Parse NetworkMessage
-    let server_msg = match serde_json::from_str::<ServerMessage>(message) {
-        Ok(msg) => msg,
-        Err(e) => {
-            log::debug!("Failed to parse message: {} (Error: {})", message, e);
-            return Ok(());
-        }
-    };
-
     let network_sync = get_network_sync();
-    let mut module = network_sync.lock().unwrap();
+    let lock_result = network_sync.lock();
+    let mut module = lock_result.unwrap();
 
-    match server_msg {
-        ServerMessage::Welcome(msg) => {
-            module.client_id = msg.sender_id.clone();
-            log::info!("Connected as player ID: {}", module.client_id);
+    match get_message_type(message) {
+        Some(MessageType::ServerWelcome) => {
+            if let Ok(msg) = serde_json::from_str::<ServerWelcomeMessage>(message) {
+                module.client_id = msg.client_id.clone();
+                module.connected = true;
+            }
         }
 
-        ServerMessage::SessionMembers(msg) => {
-            if let Some(session_id) = msg.data.get("session_id").and_then(|v| v.as_str()) {
-                // Update the member list
-                if let Some(members) = msg.data.get("members").and_then(|v| v.as_array()) {
-                    let session_members: Vec<String> = members
-                        .iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect();
+        Some(MessageType::ServerSyncSession) => {
+            if !module.connected {
+                log::warn!("Received sync session message before welcome message");
+                return Ok(());
+            }
 
-                    // Get current members to identify disconnected players
-                    let old_members =
-                        std::mem::replace(&mut module.session_members, session_members.clone());
+            if let Ok(msg) = serde_json::from_str::<ServerSyncSessionMessage>(message) {
+                module.remote_members = msg.members.clone();
 
-                    // Find any members that were removed (disconnected)
-                    for old_member in old_members {
-                        if !session_members.contains(&old_member) {
-                            // This player is no longer in the session, remove them from remote_players
-                            module.remote_actors.remove(&old_member);
-                            log::info!("Player {} has disconnected", old_member);
+                // Store previous remote actors to detect ownership changes
+                let previous_actors = module.remote_actors.clone();
+                let previous_local_actors = module.local_actors.clone();
+
+                // Clear remote actors and rebuild with only those owned by others
+                module.remote_actors.clear();
+
+                // Track the actors we own according to the server
+                let mut server_confirmed_local_actors = Vec::new();
+
+                // Process all actors from server
+                for (actor_id, actor) in msg.actors.iter() {
+                    if actor.owner_id == module.client_id {
+                        // This is a local actor confirmed by the server
+                        server_confirmed_local_actors.push(actor_id.clone());
+                    } else {
+                        // This is a remote actor owned by someone else
+                        module.remote_actors.insert(actor_id.clone(), actor.clone());
+                    }
+                }
+
+                // Reconcile our local actors list with server's view
+                // 1. First add any server-confirmed actors not in our list
+                for server_actor in &server_confirmed_local_actors {
+                    if !module.local_actors.contains(server_actor) {
+                        log::info!(
+                            "Adding server-confirmed actor {} to local actors list",
+                            server_actor
+                        );
+                        module.local_actors.push(server_actor.clone());
+                    }
+                }
+
+                // 2. Check for any actors we think we own that the server doesn't recognize
+                for local_actor in &previous_local_actors {
+                    if !server_confirmed_local_actors.contains(local_actor) {
+                        log::warn!("Local actor {} not confirmed by server", local_actor);
+                    }
+                }
+
+                // Log any ownership changes
+                for (actor_id, actor) in &module.remote_actors {
+                    if let Some(prev_actor) = previous_actors.get(actor_id) {
+                        if prev_actor.owner_id != actor.owner_id {
+                            log::warn!(
+                                "Ownership change for actor {}: {} -> {}",
+                                actor_id,
+                                prev_actor.owner_id,
+                                actor.owner_id
+                            );
                         }
                     }
-
-                    log::info!(
-                        "Session '{}' updated: {} members: {:?}",
-                        session_id,
-                        module.session_members.len(),
-                        module.session_members
-                    );
                 }
-            }
-        }
 
-        ServerMessage::ActorSync(msg) => {
-            if msg.sender_id != module.client_id {
-                // Only store data from other players, not ourself
-                let remote_data = RemoteActorData {
-                    id: msg.sender_id.clone(),
-                    data: msg.data.clone(),
-                    last_update: Instant::now(),
-                };
-
-                // Store the remote player data
-                module
-                    .remote_actors
-                    .insert(msg.sender_id.clone(), remote_data);
-
-                log::debug!("Received actor sync from {}", msg.sender_id);
-            }
-        }
-
-        ServerMessage::RegisteredMessage(msg) => {
-            if msg.sender_id != module.client_id {
-                module.queue_message(msg.message_id.clone(), msg.data);
                 log::debug!(
-                    "Received message '{}' from {}",
-                    msg.message_id,
-                    msg.sender_id
+                    "After processing - Local actors: {}, Remote actors: {}",
+                    module.local_actors.len(),
+                    module.remote_actors.len()
                 );
             }
+        }
+
+        Some(MessageType::RegisteredMessage) => {
+            if !module.connected {
+                log::warn!("Received registered message before welcome message");
+                return Ok(());
+            }
+
+            if let Ok(msg) = serde_json::from_str::<RegisteredMessage>(message) {
+                module.queue_message(msg.message_id.clone(), msg.data);
+            }
+        }
+
+        _ => {
+            log::warn!("Received invalid message: {}", message);
         }
     }
 

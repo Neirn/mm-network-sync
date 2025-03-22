@@ -60,7 +60,7 @@ The test mod demonstrates:
 
 1. Clone this repository:
    ```
-   git clone https://github.com/yourusername/mm-network-sync.git
+   git clone https://github.com/retrofoundry/mm-network-sync.git
    cd mm-network-sync
    ```
 
@@ -79,11 +79,25 @@ The test mod demonstrates:
    ```
    Or manually copy `build/main/mm_network_sync.nrm`, `build/test/mm_network_sync_test.nrm`, and the compiled `build/network_sync_runtime.dylib` (or `.so`/`.dll`) to your mods folder.
 
-4. Run the server:
-Using Cargo:
+4. Building just the server:
    ```
-   cd network-server
+   cd network-sync-server
+   cargo build --release
+   ```
+
+5. Run the server:
+   
+   Using Cargo:
+   ```
+   cd network-sync-server
    cargo run
+   ```
+
+   Using Docker:
+   ```
+   cd network-sync-server
+   docker build -t mm-network-server .
+   docker run -p 8080:8080 mm-network-server
    ```
 
    Using Docker Compose:
@@ -92,4 +106,4 @@ Using Cargo:
    ```
    This will start the network server in a detached mode, which is useful for running it in the background.
 
-5. Launch Zelda 64: Recompiled with the mods enabled.
+6. Launch Zelda 64: Recompiled with the mods enabled.

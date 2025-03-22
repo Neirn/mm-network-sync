@@ -1,4 +1,4 @@
-name: Build and Release
+name: validate
 
 on:
   push:
@@ -12,7 +12,29 @@ env:
   N64RECOMP_COMMIT: 198de1b5cf6e58415948588584750c51562d58dd
 
 jobs:
-  build:
+  build-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: "recursive"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Network Sync Server
+        run: |
+          cd network-sync-server
+          cargo build --release
+
+      - name: Upload server artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-sync-server
+          path: network-sync-server/target/release/network-sync-server
+          if-no-files-found: error
+
+  build-mod:
     strategy:
       fail-fast: false
       matrix:

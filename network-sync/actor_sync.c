@@ -18,7 +18,7 @@ static u8 gSyncedActorCategories[MAX_ACTOR_CATEGORIES] = {0};  // Bitset for cat
 // Structure to hold network-specific data for each actor
 typedef struct {
     // UUID string for this actor
-    char actor_id[64];
+    char actor_id[UUID_STRING_LENGTH];
     // Flag indicating if actor is being synced
     u8 is_synced;
     // Flag indicating whether we are in charge of pushing its data to the server
@@ -105,17 +105,27 @@ void ActorSyncRegister(Actor* actor, const char* playerId, int isOwnedLocally) {
         gSyncedActorCategories[actor->category] = 1;
     }
 
-    if (actor->id == 0) {
-        char playerIdBuffer[64];
-        u8 success = NetworkSyncGetClientId(playerIdBuffer, sizeof(playerIdBuffer));
+    if (playerId == NULL) {
+        recomp_printf("WARNING: Registering actor with NULL playerId - generating new UUID\n");
+        
+        char* playerIdBuffer = recomp_alloc(37);
+        u8 success = NetworkSyncGenerateUUID(playerIdBuffer);
+
         if (success) {
             strcpy(netData->actor_id, playerIdBuffer);
-            recomp_printf("Added player to sync system\n");
+            recomp_printf("Generated actor ID: %s\n", netData->actor_id);
         } else {
-            recomp_printf("Failed to get player ID\n");
+            recomp_printf("Failed to generate actor ID\n");
         }
+        
+        recomp_free(playerIdBuffer);
     } else if (playerId != NULL) {
+        recomp_printf("Registering actor with provided ID: %s\n", playerId);
         strcpy(netData->actor_id, playerId);
+    }
+
+    if (isOwnedLocally) {
+        NetworkSyncRegisterActor(netData->actor_id);
     }
 }
 
@@ -142,15 +152,24 @@ void ActorSyncUpdate(PlayState* play, Actor* actor) {
         Math_Vec3s_Copy(&syncData->upperLimbRot, &player->upperLimbRot);
     }
 
-    NetworkSyncEmitActorData(syncData);
+    NetworkSyncSendActorUpdate(netData->actor_id, syncData);
     recomp_free(syncData);
 }
 
 void ActorSyncProcessRemoteData(PlayState* play) {
     ActorSyncData remote_data;
-    char ids_buffer[MAX_SYNCED_ACTORS * 64];
-    u32 player_count = NetworkSyncGetRemoteActorIDs(MAX_SYNCED_ACTORS, ids_buffer, 64);
+    
+    // Allocate buffer with proper size and alignment
+    // Each ID needs UUID_STRING_LENGTH bytes (which is 37 with null terminator)
+    char* ids_buffer = recomp_alloc(sizeof(char) * MAX_SYNCED_ACTORS * UUID_STRING_LENGTH);
+    
+    // Clear the buffer to avoid garbage values
+    memset(ids_buffer, 0, sizeof(char) * MAX_SYNCED_ACTORS * UUID_STRING_LENGTH);
+    
+    // Get remote actor IDs, using proper buffer size (UUID_STRING_LENGTH, not 64)
+    u32 remote_actor_count = NetworkSyncGetRemoteActorIDs(MAX_SYNCED_ACTORS, ids_buffer, UUID_STRING_LENGTH);
 
+    // Check all actor categories that have synced actors
     for (u32 i = 0; i < MAX_ACTOR_CATEGORIES; i++) {
         if (gSyncedActorCategories[i] == 0) {
             continue;
@@ -160,22 +179,31 @@ void ActorSyncProcessRemoteData(PlayState* play) {
 
         while (actor != NULL) {
             NetworkExtendedActorData* net_data = GetActorNetworkData(actor);
-            Actor* next_actor = actor->next;
+            Actor* next_actor = actor->next; // Save next pointer as we may delete this actor
 
             if (net_data != NULL && net_data->is_synced) {
+                // Skip actors we own locally
                 if (net_data->is_owned_locally) {
                     actor = next_actor;
                     continue;
                 }
 
-                for (u32 j = 0; j < player_count; j++) {
-                    const char* actor_id = &ids_buffer[j * 64];
-
-                    if (strcmp(net_data->actor_id, actor_id) == 0) {
-                        if (NetworkSyncGetRemoteActorData(actor_id, &remote_data)) {
+                // Try to find this actor in our remote actors list
+                for (u32 j = 0; j < remote_actor_count; j++) {
+                    const char* remote_actor_id = &ids_buffer[j * UUID_STRING_LENGTH];
+                    
+                    // Make sure we're looking at valid strings
+                    if (remote_actor_id[0] == '\0' || net_data->actor_id[0] == '\0') {
+                        continue;
+                    }
+                    
+                    if (strcmp(net_data->actor_id, remote_actor_id) == 0) {
+                        if (NetworkSyncGetRemoteActorData(remote_actor_id, &remote_data)) {
+                            // Update actor's position and rotation
                             Math_Vec3s_Copy(&actor->shape.rot, &remote_data.shapeRotation);
                             Math_Vec3f_Copy(&actor->world.pos, &remote_data.worldPosition);
 
+                            // Update player-specific properties if applicable
                             if (actor->category == ACTORCAT_PLAYER) {
                                 Player* player = (Player*)actor;
                                 player->currentMask = remote_data.currentMask;
@@ -187,7 +215,6 @@ void ActorSyncProcessRemoteData(PlayState* play) {
 
                                 Math_Vec3s_Copy(&player->upperLimbRot, &remote_data.upperLimbRot);
                             }
-
                             break;
                         }
                     }
@@ -197,4 +224,7 @@ void ActorSyncProcessRemoteData(PlayState* play) {
             actor = next_actor;
         }
     }
+    
+    // Free allocated buffer
+    recomp_free(ids_buffer);
 } 

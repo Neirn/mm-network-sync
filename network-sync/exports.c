@@ -3,6 +3,7 @@
 #include "network_core.h"
 #include "actor_sync.h"
 #include "message_system.h"
+#include "recomputils.h"
 
 // MARK: - Core Network API
 
