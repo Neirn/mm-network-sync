@@ -8,7 +8,7 @@
 id = "mm_network_sync_test"
 
 # Version of this mod.
-version = "0.0.1"
+version = "0.0.2"
 
 # The name that will show up for this mod in the mod menu. This should be human readable.
 display_name = "Network Sync Test"
@@ -31,7 +31,7 @@ minimum_recomp_version = "1.2.0"
 
 # Dependency mods. Each entry is the mod's ID and then an optional minimum version of the dependency mod.
 dependencies = [
-    "mm_network_sync:0.0.1",
+    "mm_network_sync:0.0.2",
     "ProxyMM_Notifications:0.0.1",
     "ProxyMM_CustomActor:0.0.1",
 ]
