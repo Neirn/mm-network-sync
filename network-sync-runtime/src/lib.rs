@@ -224,8 +224,6 @@ pub extern "C" fn NetworkSyncGetRemoteActorIDs(rdram: *mut u8, ctx: *mut RecompC
                         .map(|(id, _)| id.as_str())
                         .collect();
 
-                    log::debug!("Found {} remote actors", remote_owned.len());
-
                     // Write each ID to the buffer as a 2D array [max_players][id_buffer_size]
                     let mut written_ids = 0;
                     for (idx, actor_id) in remote_owned.iter().enumerate() {

@@ -56,10 +56,16 @@ s16 ACTOR_REMOTE_PLAYER = ACTOR_ID_MAX;
 
 u8 has_connected = 0;
 u8 has_loaded_save = 0;
+s32 current_scene_id = -1; 
+// Track local player actor ID
+static char local_player_id[UUID_STRING_LENGTH] = {0};
+static u8 has_local_player = 0;
 
 RECOMP_CALLBACK("*", recomp_on_init)
 void init_runtime() {
     has_connected = 0;
+    has_local_player = 0;
+    memset(local_player_id, 0, UUID_STRING_LENGTH);
 
     NS_Init();
     ACTOR_REMOTE_PLAYER = CustomActor_Register(&RemotePlayer_InitVars);
@@ -80,25 +86,24 @@ void on_play_init(PlayState* play) {
             "Connected to server", // Main Message (white)
             "" // Suffix (Blue)
         );
+
+        u8 result = NS_JoinSession("test");
+        if (result) {
+            Notifications_Emit(
+                "", // Prefix (Purple)
+                "Joined session", // Main Message (white)
+                "" // Suffix (Blue)
+            );
+        } else {
+            Notifications_Emit(
+                "Failed to join session", // Prefix (Purple)
+                "", // Main Message (white)
+                "" // Suffix (Blue)
+            );
+        }
     } else {
         Notifications_Emit(
             "Failed to connect to server", // Prefix (Purple)
-            "", // Main Message (white)
-            "" // Suffix (Blue)
-        );
-        return;
-    }
-
-    u8 result = NS_JoinSession("test");
-    if (result) {
-        Notifications_Emit(
-            "", // Prefix (Purple)
-            "Joined session", // Main Message (white)
-            "" // Suffix (Blue)
-        );
-    } else {
-        Notifications_Emit(
-            "Failed to join session", // Prefix (Purple)
             "", // Main Message (white)
             "" // Suffix (Blue)
         );
@@ -126,8 +131,25 @@ RECOMP_HOOK("Player_Init")
 void OnPlayerInit(Actor* thisx, PlayState* play) {
     if (!has_loaded_save) return;
 
-    recomp_printf("Player initialized\n");
-    NS_SyncActor(thisx, NULL, 1);
+    recomp_printf("Player initialized in scene %d\n", play->sceneId);
+    
+    // Check if we already have a local player registered
+    if (has_local_player) {
+        recomp_printf("Local player already exists with ID %s, updating actor reference\n", local_player_id);
+        // Use existing ID for this actor
+        NS_SyncActor(thisx, local_player_id, 1);
+    } else {
+        recomp_printf("Registering new local player\n");
+        // Register new actor and save the ID
+        NS_SyncActor(thisx, NULL, 1);
+        const char* actorNetworkId = NS_GetActorNetworkId(thisx);
+        if (actorNetworkId != NULL) {
+            strcpy(local_player_id, actorNetworkId);
+            has_local_player = 1;
+            recomp_printf("Saved local player ID: %s\n", local_player_id);
+        }
+    }
+
 }
 
 RECOMP_HOOK("Player_UseItem")
@@ -153,8 +175,6 @@ void remote_actors_update(PlayState* play) {
     
     // Call with the proper buffer size parameter (UUID_STRING_LENGTH)
     remoteActorCount = NS_GetRemoteActorIDs(MAX_REMOTE_ACTORS, (char*)remoteActorIds, UUID_STRING_LENGTH);
-    
-    recomp_printf("Remote actor count: %d\n", remoteActorCount);
 
     // Create actors for new remote entities (only if we have any)
     for (u32 i = 0; i < remoteActorCount; i++) {
