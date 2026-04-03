@@ -10,6 +10,7 @@ ColumnLimit: 0
 AccessModifierOffset: -4
 SortIncludes: false
 IndentExternBlock: Indent
+IndentPPDirectives: BeforeHash
 AttributeMacros:
     - RECOMP_IMPORT
     - RECOMP_EXPORT

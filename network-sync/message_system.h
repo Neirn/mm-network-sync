@@ -5,8 +5,8 @@
 
 // MARK: - Message System API
 
-u8 MessageSystemRegisterHandler(const char* messageId, u32 payloadSize, void* callback);
-u8 MessageSystemEmit(const char* messageId, void* data);
+u8 MessageSystemRegisterHandler(const char *messageId, u32 payloadSize, void *callback);
+u8 MessageSystemEmit(const char *messageId, void *data);
 void MessageSystemProcessPending();
 
-#endif // MESSAGE_SYSTEM_H 
+#endif // MESSAGE_SYSTEM_H

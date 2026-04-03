@@ -8,7 +8,7 @@
 typedef struct {
     char message_id[64];          // String identifier for the message
     u32 payload_size;             // Expected payload size
-    void (*callback)(void* data); // Callback function
+    void (*callback)(void *data); // Callback function
 } MessageCallback;
 
 // Maximum number of message handlers we can register
@@ -20,7 +20,7 @@ static u32 gMessageCallbackCount = 0;
 
 // MARK: - Message System Implementation
 
-u8 MessageSystemRegisterHandler(const char* messageId, u32 payloadSize, void* callback) {
+u8 MessageSystemRegisterHandler(const char *messageId, u32 payloadSize, void *callback) {
     if (gMessageCallbackCount >= MAX_MESSAGE_CALLBACKS) {
         recomp_printf("Error: Maximum number of message handlers reached\n");
         return 1;
@@ -53,7 +53,7 @@ u8 MessageSystemRegisterHandler(const char* messageId, u32 payloadSize, void* ca
     return 0;
 }
 
-u8 MessageSystemEmit(const char* messageId, void* data) {
+u8 MessageSystemEmit(const char *messageId, void *data) {
     // Find the registered size for this message type
     u32 size = 0;
     for (u32 i = 0; i < gMessageCallbackCount; i++) {
@@ -80,7 +80,7 @@ void MessageSystemProcessPending() {
         }
 
         // Allocate buffer for the message
-        void* buffer = recomp_alloc(messageSize + sizeof(u32));
+        void *buffer = recomp_alloc(messageSize + sizeof(u32));
         char messageId[64] = {0};
 
         // Get the message and its ID
@@ -97,4 +97,4 @@ void MessageSystemProcessPending() {
         // Free the buffer
         recomp_free(buffer);
     }
-} 
+}
