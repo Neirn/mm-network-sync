@@ -2,8 +2,7 @@
 #include "recomputils.h"
 #include "z64recomp_api.h"
 #include "network_core.h"
-
-#include <string.h>
+#include "string.h"
 
 // MARK: - Actor Extension
 

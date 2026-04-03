@@ -1,5 +1,3 @@
-#include <stdint.h>
-
 #include "modding.h"
 #include "global.h"
 #include "actor_sync.h"

@@ -1,8 +1,7 @@
 #include "message_system.h"
 #include "recomputils.h"
 #include "network_core.h"
-
-#include <string.h>
+#include "string.h"
 
 // Message callback registry
 typedef struct {

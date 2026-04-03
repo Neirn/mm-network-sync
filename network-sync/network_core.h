@@ -2,7 +2,7 @@
 #define NETWORK_CORE_H
 
 #include "modding.h"
-#include <stdint.h>
+#include "PR/ultratypes.h"
 
 // MARK: - Constants
 
