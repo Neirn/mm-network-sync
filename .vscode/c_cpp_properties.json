@@ -5,18 +5,44 @@
             "includePath": [
                 "${workspaceFolder}/include",
                 "${workspaceFolder}/include/dummy_headers",
-                "${workspaceFolder}/mm-decomp/include",
-                "${workspaceFolder}/mm-decomp/src",
-                "${workspaceFolder}/mm-decomp/extracted/n64-us"
+                "${workspaceFolder}/deps/mm-decomp/include",
+                "${workspaceFolder}/deps/mm-decomp/include/libc",
+                "${workspaceFolder}/deps/mm-decomp/src",
+                "${workspaceFolder}/deps/mm-decomp/extracted/n64-us"
             ],
             "defines": [
                 "F3DEX_GBI_2",
                 "_LANGUAGE_C",
-                "MIPS"
+                "MIPS",
+                "F3DEX_GBI_2",
+                "F3DEX_GBI_PL",
+                "GBI_DOWHILE"
             ],
             "compilerPath": "clang",
-            "cStandard": "c99",
-            "intelliSenseMode": "clang-x86"
+            "cStandard": "gnu17",
+            "intelliSenseMode": "clang-x86",
+            "compilerArgs": [
+                "\"-target\", \"mips\"",
+                "-mips2",
+                "-mabi=32",
+                "-mno-abicalls",
+                "-mno-odd-spreg",
+                "-mno-check-zero-division",
+                "-fomit-frame-pointer",
+                "-ffast-math",
+                "-fno-unsafe-math-optimizations",
+                "-fno-builtin-memset",
+                "-Wall",
+                "-Wextra",
+                "-Wno-incompatible-library-redeclaration",
+                "-Wno-unused-parameter",
+                "-Wno-unknown-pragmas",
+                "-Wno-unused-variable",
+                "-Wno-missing-braces",
+                "-Wno-unsupported-floating-point-opt",
+                "-Werror=section",
+                "-nostdinc"
+            ]
         }
     ],
     "version": 4
