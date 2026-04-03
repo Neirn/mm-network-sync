@@ -36,8 +36,7 @@ pub struct ActorGameData {
     pub joint_table: [Vec3s; 24],
     pub current_mask: i8,
     pub current_shield: i8,
-    pub left_hand_type: i8,
-    pub right_hand_type: i8,
     pub model_group: i8,
     pub transformation: i8,
+    pub movement_flags: i8,
 }

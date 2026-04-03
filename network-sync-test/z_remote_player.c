@@ -24,7 +24,6 @@ ActorProfile RemotePlayer_InitVars = {
 };
 
 static void *sPlayerObjects[PLAYER_FORM_MAX];
-static FlexSkeletonHeader *sPlayerSkeletons[PLAYER_FORM_MAX];
 
 GLOBAL_OBJECTS_CALLBACK_ON_READY void onGlobalObjectsReady(void) {
     sPlayerObjects[PLAYER_FORM_HUMAN] = GlobalObjects_getGlobalObject(OBJECT_LINK_CHILD);

@@ -43,10 +43,9 @@ typedef struct {
     Vec3s jointTable[24];
     s8 currentMask;
     s8 currentShield;
-    s8 leftHandType;
-    s8 rightHandType;
     s8 modelGroup;
     s8 transformation;
+    s8 movementFlags;
 } ActorSyncData;
 
 // MARK: - Actor Sync Implementation
@@ -147,10 +146,9 @@ void ActorSyncUpdate(PlayState *play, Actor *actor) {
         Player *player = (Player *)actor;
         syncData->currentMask = player->currentMask;
         syncData->currentShield = player->currentShield;
-        syncData->leftHandType = player->leftHandType;
-        syncData->rightHandType = player->rightHandType;
         syncData->modelGroup = player->modelGroup;
         syncData->transformation = player->transformation;
+        syncData->movementFlags = player->skelAnime.movementFlags;
 
         for (int i = 0; i < ARRAY_COUNT(syncData->jointTable); i++) {
             Math_Vec3s_Copy(&syncData->jointTable[i], &player->skelAnime.jointTable[i]);
@@ -215,9 +213,9 @@ void ActorSyncProcessRemoteData(PlayState *play) {
                                 Player *player = (Player *)actor;
                                 player->currentMask = remote_data.currentMask;
                                 player->currentShield = remote_data.currentShield;
-                                player->rightHandType = remote_data.rightHandType;
-                                player->leftHandType = remote_data.leftHandType;
                                 player->transformation = remote_data.transformation;
+                                player->modelGroup = remote_data.modelGroup;
+                                player->skelAnime.movementFlags = remote_data.movementFlags;
 
                                 for (int k = 0; k < 24; k++) {
                                     Math_Vec3s_Copy(&player->skelAnime.jointTable[k], &remote_data.jointTable[k]);
