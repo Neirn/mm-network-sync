@@ -1,4 +1,5 @@
 #include "z_remote_player.h"
+#include "globalobjects_api.h"
 
 #define FLAGS                                                                                  \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED | \
@@ -14,13 +15,35 @@ ActorProfile RemotePlayer_InitVars = {
     /**/ ACTOR_ID_MAX,
     /**/ ACTORCAT_PLAYER,
     /**/ FLAGS,
-    /**/ OBJECT_LINK_CHILD,
+    /**/ GAMEPLAY_KEEP,
     /**/ sizeof(Player),
     /**/ RemotePlayer_Init,
     /**/ RemotePlayer_Destroy,
     /**/ RemotePlayer_Update,
     /**/ RemotePlayer_Draw,
 };
+
+static void *sPlayerObjects[PLAYER_FORM_MAX];
+static FlexSkeletonHeader *sPlayerSkeletons[PLAYER_FORM_MAX];
+
+GLOBAL_OBJECTS_CALLBACK_ON_READY void onGlobalObjectsReady(void) {
+    sPlayerObjects[PLAYER_FORM_HUMAN] = GlobalObjects_getGlobalObject(OBJECT_LINK_CHILD);
+    sPlayerObjects[PLAYER_FORM_DEKU] = GlobalObjects_getGlobalObject(OBJECT_LINK_NUTS);
+    sPlayerObjects[PLAYER_FORM_GORON] = GlobalObjects_getGlobalObject(OBJECT_LINK_GORON);
+    sPlayerObjects[PLAYER_FORM_ZORA] = GlobalObjects_getGlobalObject(OBJECT_LINK_ZORA);
+    sPlayerObjects[PLAYER_FORM_FIERCE_DEITY] = GlobalObjects_getGlobalObject(OBJECT_LINK_BOY);
+}
+
+static void forceObjectDependency(void *obj) {
+    gSegments[0x06] = OS_K0_TO_PHYSICAL(obj);
+}
+
+static void setGfxObjDependency(PlayState *play, void *obj) {
+    OPEN_DISPS(play->state.gfxCtx);
+    gSPSegment(POLY_OPA_DISP++, 0x06, obj);
+    gSPSegment(POLY_XLU_DISP++, 0x06, obj);
+    CLOSE_DISPS(play->state.gfxCtx);
+}
 
 void RemotePlayer_Init(Actor *thisx, PlayState *play) {
     Player *player = (Player *)thisx;
@@ -32,27 +55,68 @@ void RemotePlayer_Init(Actor *thisx, PlayState *play) {
     player->heldItemAction = PLAYER_IA_NONE;
     player->heldItemId = ITEM_OCARINA_OF_TIME;
 
+    forceObjectDependency(sPlayerObjects[player->transformation]);
+
     Player_SetModelGroup(player, PLAYER_MODELGROUP_DEFAULT);
     play->playerInit(player, play, gPlayerSkeletons[player->transformation]);
 
-    player->maskObjectSegment = ZeldaArena_Malloc(0x3800);
+    player->maskObjectSegment = recomp_alloc(0x3800);
     // play->func_18780(player, play);
     Player_Anim_PlayOnceMorph(play, player, Player_GetIdleAnim(player));
     player->yaw = player->actor.shape.rot.y;
 
     // Will ensure the actor is always updating even when in a separate room than the player
     player->actor.room = -1;
+
+    extern AnimationHeader gLinkGoronShieldingAnim;
+    extern FlexSkeletonHeader gLinkGoronShieldingSkel;
+
+    void *goronObj = sPlayerObjects[PLAYER_FORM_GORON];
+    AnimationHeader *goronShieldingAnimGlobal = SEGMENTED_TO_GLOBAL_PTR(goronObj, &gLinkGoronShieldingAnim);
+    FlexSkeletonHeader *goronShieldingSkelGlobal = SEGMENTED_TO_GLOBAL_PTR(goronObj, &gLinkGoronShieldingSkel);
+
+    SkelAnime_InitFlex(play, &player->unk_2C8, goronShieldingSkelGlobal, goronShieldingAnimGlobal, player->jointTable, player->morphTable, goronShieldingSkelGlobal->sh.limbCount);
 }
 
-void RemotePlayer_Destroy(Actor *thisx, PlayState *play) {}
+void RemotePlayer_Destroy(Actor *thisx, PlayState *play) {
+    Player *player = (Player *)thisx;
+
+    forceObjectDependency(sPlayerObjects[player->transformation]);
+
+    recomp_free(player->maskObjectSegment);
+}
 
 void RemotePlayer_Update(Actor *thisx, PlayState *play) {
     Player *player = (Player *)thisx;
 
+    forceObjectDependency(sPlayerObjects[player->transformation]);
+
+    player->ageProperties = &sPlayerAgeProperties[player->transformation];
+
+    FlexSkeletonHeader *skel = Lib_SegmentedToVirtual(gPlayerSkeletons[player->transformation]);
+
+    player->skelAnime.skeleton = skel->sh.segment;
+
     player->actor.shape.shadowAlpha = 255;
+
+    func_801229FC(player);
+}
+
+s32 RemotePlayer_OverrideLimbDrawGameplayDefault(PlayState *play, s32 limbIndex, Gfx **dList, Vec3f *pos, Vec3s *rot, Actor *actor) {
+    Player_OverrideLimbDrawGameplayDefault(play, limbIndex, dList, pos, rot, actor);
+
+    Player *player = (Player *)actor;
+
+    return false;
 }
 
 void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
     Player *player = (Player *)thisx;
-    Player_DrawGameplay(play, player, 1, gCullBackDList, Player_OverrideLimbDrawGameplayDefault);
+
+    forceObjectDependency(sPlayerObjects[player->transformation]);
+    setGfxObjDependency(play, sPlayerObjects[player->transformation]);
+
+    Player_SetModelGroup(player, player->modelGroup);
+
+    Player_DrawGameplay(play, player, 1, gCullBackDList, RemotePlayer_OverrideLimbDrawGameplayDefault);
 }
