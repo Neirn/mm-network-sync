@@ -93,6 +93,11 @@ void RemotePlayer_Update(Actor *thisx, PlayState *play) {
 
     forceObjectDependency(sPlayerObjects[player->transformation]);
 
+    // Let PMM handle age properties for human (handles adult age props)
+    if (player->transformation != PLAYER_FORM_HUMAN) {
+        player->ageProperties = &sPlayerAgeProperties[player->transformation];
+    }
+
     player->actor.shape.shadowAlpha = 255;
 
     func_801229FC(player);
