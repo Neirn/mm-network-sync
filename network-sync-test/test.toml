@@ -35,6 +35,8 @@ dependencies = [
     "ProxyMM_Notifications:0.0.1",
     "ProxyMM_CustomActor:0.0.1",
     "yazmt_mm_global_objects:0.1.1",
+    "yazmt_mm_playermodelmanager:0.6.0",
+    "yazmt_mm_corelib:0.1.1",
 ]
 
 # Native libraries (e.g. DLLs) and the functions they export.

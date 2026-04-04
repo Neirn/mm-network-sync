@@ -1,5 +1,8 @@
 #include "z_remote_player.h"
 #include "globalobjects_api.h"
+#include "playermodelmanager_api.h"
+
+RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_Actor_setFormModelType(Actor *actor, PlayerModelManagerModelType type));
 
 #define FLAGS                                                                                  \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED | \
@@ -90,24 +93,22 @@ void RemotePlayer_Update(Actor *thisx, PlayState *play) {
 
     forceObjectDependency(sPlayerObjects[player->transformation]);
 
-    player->ageProperties = &sPlayerAgeProperties[player->transformation];
-
-    FlexSkeletonHeader *skel = Lib_SegmentedToVirtual(gPlayerSkeletons[player->transformation]);
-
-    player->skelAnime.skeleton = skel->sh.segment;
-
     player->actor.shape.shadowAlpha = 255;
 
     func_801229FC(player);
+
+    static PlayerModelManagerModelType transformationToModelType[] = {
+        [PLAYER_FORM_HUMAN] = PMM_MODEL_TYPE_CHILD,
+        [PLAYER_FORM_DEKU] = PMM_MODEL_TYPE_DEKU,
+        [PLAYER_FORM_GORON] = PMM_MODEL_TYPE_GORON,
+        [PLAYER_FORM_ZORA] = PMM_MODEL_TYPE_ZORA,
+        [PLAYER_FORM_FIERCE_DEITY] = PMM_MODEL_TYPE_FIERCE_DEITY,
+    };
+
+    PlayerModelManager_Actor_setFormModelType(&player->actor, transformationToModelType[player->transformation]);
 }
 
-s32 RemotePlayer_OverrideLimbDrawGameplayDefault(PlayState *play, s32 limbIndex, Gfx **dList, Vec3f *pos, Vec3s *rot, Actor *actor) {
-    Player_OverrideLimbDrawGameplayDefault(play, limbIndex, dList, pos, rot, actor);
-
-    Player *player = (Player *)actor;
-
-    return false;
-}
+RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, void PlayerModelManager_updatePlayerAssets(Player *player));
 
 void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
     Player *player = (Player *)thisx;
@@ -115,7 +116,9 @@ void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
     forceObjectDependency(sPlayerObjects[player->transformation]);
     setGfxObjDependency(play, sPlayerObjects[player->transformation]);
 
+    PlayerModelManager_updatePlayerAssets(player);
+
     Player_SetModelGroup(player, player->modelGroup);
 
-    Player_DrawGameplay(play, player, 1, gCullBackDList, RemotePlayer_OverrideLimbDrawGameplayDefault);
+    Player_DrawGameplay(play, player, 1, gCullBackDList, Player_OverrideLimbDrawGameplayDefault);
 }
