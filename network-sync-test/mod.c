@@ -96,8 +96,6 @@ s16 ACTOR_REMOTE_PLAYER = ACTOR_ID_MAX;
 // MARK: - Events
 
 u8 gHasConnected;
-u8 gHasLoadedSave;
-s32 gCurrentSceneId = -1;
 // Track local player actor ID
 char gLocalPlayerId[UUID_STRING_LENGTH];
 static u8 gHasLocalPlayer;
@@ -178,16 +176,12 @@ RECOMP_CALLBACK(YAZMT_PMM_MOD_NAME, onMainModelChanged) void updateNetworkedPlay
 
 RECOMP_HOOK("FileSelect_LoadGame") void OnFileSelect_LoadGame(PlayState *play) {
     recomp_printf("FileSelect_LoadGame called\n");
-    gHasLoadedSave = 1;
 }
 
 RECOMP_HOOK("Player_Init") void OnPlayerInit(Actor *thisx, PlayState *play) {
-    if (!gHasLoadedSave)
-        return;
-
     // recomp_printf("Player initialized in scene %d\n", play->sceneId);
 
-    if ((Player *)thisx == GET_PLAYER(play)) {
+    if (GET_PLAYER(play) == NULL || thisx == &GET_PLAYER(play)->actor) {
         // Check if we already have a local player registered
         if (gHasLocalPlayer) {
             recomp_printf("Local player already exists with ID %s, updating actor reference\n", gLocalPlayerId);
@@ -208,9 +202,6 @@ RECOMP_HOOK("Player_Init") void OnPlayerInit(Actor *thisx, PlayState *play) {
 }
 
 RECOMP_HOOK("Player_UseItem") void OnPlayer_UseItem(PlayState *play, Player *this, ItemId item) {
-    if (!gHasLoadedSave)
-        return;
-
     ItemUsedMessage msg;
     msg.dummy_data = 7;
     //recomp_printf("Player_UseItem called\n");
