@@ -60,3 +60,10 @@ data_reference_syms_files = [
 
 # Additional files to include in the mod.
 additional_files = []
+
+[[manifest.config_options]]
+id = "server_ip"
+name = "Server IP"
+description = "Server to connect to. Needs to be prefixed with ws:// or wss://"
+type = "String"
+default = "ws://neirn.ddns.net:8080"

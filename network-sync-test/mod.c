@@ -4,6 +4,7 @@
 #include "string.h"
 #include "yazmtcorelib_api.h"
 #include "playermodelmanager_api.h"
+#include "recompconfig.h"
 
 #define UUID_STRING_LENGTH 37
 
@@ -119,7 +120,12 @@ RECOMP_CALLBACK("*", recomp_on_play_init) void on_play_init(PlayState *play) {
     if (gHasConnected)
         return;
     recomp_printf("Connecting to server...\n");
-    gHasConnected = NS_Connect(SERVER_URL);
+
+    char *ip = recomp_get_config_string("server_ip");
+
+    if (ip) {
+        gHasConnected = NS_Connect(ip);
+    }
 
     if (gHasConnected) {
         Notifications_Emit(
