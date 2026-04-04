@@ -30,6 +30,7 @@ impl Actor {
 pub struct ActorGameData {
     pub world_position: Vec3f,
     pub shape_rotation: Vec3s,
+    pub shape_face: i16,
 
     // Player Actor specific properties
     pub upper_limb_rot: Vec3s,

@@ -37,6 +37,7 @@ static NetworkExtendedActorData *GetActorNetworkData(Actor *actor) {
 typedef struct {
     Vec3f worldPosition;
     Vec3s shapeRotation;
+    s16 shapeFace;
 
     // Player Actor specific properties
     Vec3s upperLimbRot;
@@ -141,6 +142,7 @@ void ActorSyncUpdate(PlayState *play, Actor *actor) {
     ActorSyncData *syncData = recomp_alloc(sizeof(ActorSyncData) + sizeof(Vec3s) * 23);
     Math_Vec3s_Copy(&syncData->shapeRotation, &actor->shape.rot);
     Math_Vec3f_Copy(&syncData->worldPosition, &actor->world.pos);
+    syncData->shapeFace = actor->shape.face;
 
     if (actor->category == ACTORCAT_PLAYER) {
         Player *player = (Player *)actor;
@@ -207,6 +209,7 @@ void ActorSyncProcessRemoteData(PlayState *play) {
                             // Update actor's position and rotation
                             Math_Vec3s_Copy(&actor->shape.rot, &remote_data.shapeRotation);
                             Math_Vec3f_Copy(&actor->world.pos, &remote_data.worldPosition);
+                            actor->shape.face = remote_data.shapeFace;
 
                             // Update player-specific properties if applicable
                             if (actor->category == ACTORCAT_PLAYER) {
