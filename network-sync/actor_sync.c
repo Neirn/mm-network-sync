@@ -34,19 +34,22 @@ static NetworkExtendedActorData *GetActorNetworkData(Actor *actor) {
 
 // MARK: - Actor Sync Data
 
+// Must be kept in sync with ActorGameData in network-sync-rs/src/structs.rs !
+// Be wary of changing the order of / adding members of the struct; padding may be needed for alignment
 typedef struct {
-    Vec3f worldPosition;
-    Vec3s shapeRotation;
-    s16 shapeFace;
-
-    // Player Actor specific properties
-    Vec3s upperLimbRot;
-    Vec3s jointTable[24];
-    s8 currentMask;
-    s8 currentShield;
-    s8 modelGroup;
-    s8 transformation;
-    s8 movementFlags;
+    Vec3f worldPosition;  // Generic
+    f32 shapeYOffset;     // Generic
+    s16 shapeFace;        // Generic
+    Vec3s shapeRotation;  // Generic
+    Vec3s upperLimbRot;   // Player
+    Vec3s jointTable[24]; // Player
+    s8 currentMask;       // Player
+    s8 currentShield;     // Player
+    s8 modelGroup;        // Player
+    s8 modelAnimType;     // Player
+    s8 transformation;    // Player
+    s8 movementFlags;     // Player
+    s8 isShielding;       // Player
 } ActorSyncData;
 
 // MARK: - Actor Sync Implementation
@@ -111,7 +114,7 @@ void ActorSyncRegister(Actor *actor, const char *playerId, int isOwnedLocally) {
     if (playerId == NULL) {
         recomp_printf("WARNING: Registering actor with NULL playerId - generating new UUID\n");
 
-        char *playerIdBuffer = recomp_alloc(37);
+        char *playerIdBuffer = recomp_alloc(UUID_STRING_LENGTH);
         u8 success = NetworkSyncGenerateUUID(playerIdBuffer);
 
         if (success) {
@@ -139,18 +142,21 @@ void ActorSyncUpdate(PlayState *play, Actor *actor) {
         return;
     }
 
-    ActorSyncData *syncData = recomp_alloc(sizeof(ActorSyncData) + sizeof(Vec3s) * 23);
+    ActorSyncData *syncData = recomp_alloc(sizeof(ActorSyncData));
     Math_Vec3s_Copy(&syncData->shapeRotation, &actor->shape.rot);
     Math_Vec3f_Copy(&syncData->worldPosition, &actor->world.pos);
     syncData->shapeFace = actor->shape.face;
+    syncData->shapeYOffset = actor->shape.yOffset;
 
     if (actor->category == ACTORCAT_PLAYER) {
         Player *player = (Player *)actor;
         syncData->currentMask = player->currentMask;
         syncData->currentShield = player->currentShield;
         syncData->modelGroup = player->modelGroup;
+        syncData->modelAnimType = player->modelAnimType;
         syncData->transformation = player->transformation;
         syncData->movementFlags = player->skelAnime.movementFlags;
+        syncData->isShielding = !!(player->stateFlags1 & PLAYER_STATE1_400000);
 
         for (int i = 0; i < ARRAY_COUNT(syncData->jointTable); i++) {
             Math_Vec3s_Copy(&syncData->jointTable[i], &player->skelAnime.jointTable[i]);
@@ -164,7 +170,7 @@ void ActorSyncUpdate(PlayState *play, Actor *actor) {
 }
 
 void ActorSyncProcessRemoteData(PlayState *play) {
-    ActorSyncData remote_data;
+    static ActorSyncData remote_data;
 
     // Allocate buffer with proper size and alignment
     // Each ID needs UUID_STRING_LENGTH bytes (which is 37 with null terminator)
@@ -210,6 +216,7 @@ void ActorSyncProcessRemoteData(PlayState *play) {
                             Math_Vec3s_Copy(&actor->shape.rot, &remote_data.shapeRotation);
                             Math_Vec3f_Copy(&actor->world.pos, &remote_data.worldPosition);
                             actor->shape.face = remote_data.shapeFace;
+                            actor->shape.yOffset = remote_data.shapeYOffset;
 
                             // Update player-specific properties if applicable
                             if (actor->category == ACTORCAT_PLAYER) {
@@ -218,11 +225,21 @@ void ActorSyncProcessRemoteData(PlayState *play) {
                                 player->currentShield = remote_data.currentShield;
                                 player->transformation = remote_data.transformation;
                                 player->modelGroup = remote_data.modelGroup;
+                                player->modelAnimType = remote_data.modelAnimType;
                                 player->skelAnime.movementFlags = remote_data.movementFlags;
+                                player->stateFlags1 = 0;
+                                player->stateFlags2 = 0;
+                                player->stateFlags3 = 0;
 
-                                for (int k = 0; k < 24; k++) {
+                                if (remote_data.isShielding && !Player_IsHoldingTwoHandedWeapon(player)) {
+                                    player->stateFlags1 |= PLAYER_STATE1_400000;
+                                }
+
+                                for (int k = 0; k < ARRAY_COUNT(remote_data.jointTable); k++) {
                                     Math_Vec3s_Copy(&player->skelAnime.jointTable[k], &remote_data.jointTable[k]);
                                 }
+
+                                player->actor.focus.rot.y = player->actor.shape.rot.y;
 
                                 Math_Vec3s_Copy(&player->upperLimbRot, &remote_data.upperLimbRot);
                             }

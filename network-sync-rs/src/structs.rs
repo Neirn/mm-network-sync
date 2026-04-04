@@ -29,15 +29,16 @@ impl Actor {
 #[derive(Debug, Clone, Serialize, Deserialize, N64MemoryIO)]
 pub struct ActorGameData {
     pub world_position: Vec3f,
-    pub shape_rotation: Vec3s,
+    pub shape_y_offset: f32,
     pub shape_face: i16,
-
-    // Player Actor specific properties
+    pub shape_rotation: Vec3s,
     pub upper_limb_rot: Vec3s,
     pub joint_table: [Vec3s; 24],
     pub current_mask: i8,
     pub current_shield: i8,
     pub model_group: i8,
+    pub model_anim_type: i8,
     pub transformation: i8,
     pub movement_flags: i8,
+    pub is_shielding: i8,
 }
