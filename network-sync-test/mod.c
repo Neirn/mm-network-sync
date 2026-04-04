@@ -179,22 +179,24 @@ RECOMP_HOOK("Player_Init") void OnPlayerInit(Actor *thisx, PlayState *play) {
     if (!gHasLoadedSave)
         return;
 
-    recomp_printf("Player initialized in scene %d\n", play->sceneId);
+    // recomp_printf("Player initialized in scene %d\n", play->sceneId);
 
-    // Check if we already have a local player registered
-    if (gHasLocalPlayer) {
-        recomp_printf("Local player already exists with ID %s, updating actor reference\n", gLocalPlayerId);
-        // Use existing ID for this actor
-        NS_SyncActor(thisx, gLocalPlayerId, 1);
-    } else {
-        recomp_printf("Registering new local player\n");
-        // Register new actor and save the ID
-        NS_SyncActor(thisx, NULL, 1);
-        const char *actorNetworkId = NS_GetActorNetworkId(thisx);
-        if (actorNetworkId != NULL) {
-            strcpy(gLocalPlayerId, actorNetworkId);
-            gHasLocalPlayer = 1;
-            recomp_printf("Saved local player ID: %s\n", gLocalPlayerId);
+    if ((Player *)thisx == GET_PLAYER(play)) {
+        // Check if we already have a local player registered
+        if (gHasLocalPlayer) {
+            recomp_printf("Local player already exists with ID %s, updating actor reference\n", gLocalPlayerId);
+            // Use existing ID for this actor
+            NS_SyncActor(thisx, gLocalPlayerId, 1);
+        } else {
+            recomp_printf("Registering new local player\n");
+            // Register new actor and save the ID
+            NS_SyncActor(thisx, NULL, 1);
+            const char *actorNetworkId = NS_GetActorNetworkId(thisx);
+            if (actorNetworkId != NULL) {
+                strcpy(gLocalPlayerId, actorNetworkId);
+                gHasLocalPlayer = 1;
+                recomp_printf("Saved local player ID: %s\n", gLocalPlayerId);
+            }
         }
     }
 }
