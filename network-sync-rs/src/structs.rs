@@ -42,4 +42,5 @@ pub struct ActorGameData {
     pub transformation: i8,
     pub movement_flags: i8,
     pub is_shielding: i8,
+    pub is_goron_curled: i8,
 }

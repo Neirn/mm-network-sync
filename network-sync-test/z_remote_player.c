@@ -124,6 +124,52 @@ s32 RemotePlayer_OverrideLimbDrawGameplayDefault(PlayState *play, s32 limbIndex,
     return Player_OverrideLimbDrawGameplayDefault(play, limbIndex, dList, pos, rot, actor);
 }
 
+// From z_player.c
+void func_80846460(Player *this);
+
+// Mostly taken from Player_Draw
+static void RemotePlayer_DrawGoronCurled(RemotePlayer *this, PlayState *play) {
+    OPEN_DISPS(play->state.gfxCtx);
+
+    Player *player = &this->player;
+
+    Color_RGB8 spBC;
+    f32 spB8 = player->unk_ABC + 1.0f;
+    f32 spB4 = 1.0f - (player->unk_ABC * 0.5f);
+
+    func_80846460(player);
+    Matrix_Translate(player->actor.world.pos.x, player->actor.world.pos.y + (1200.0f * player->actor.scale.y * spB8),
+                     player->actor.world.pos.z, MTXMODE_NEW);
+
+    if (player->unk_B86[0] != 0) {
+        Matrix_RotateYS(player->unk_B28, MTXMODE_APPLY);
+        Matrix_RotateXS(player->unk_B86[0], MTXMODE_APPLY);
+        Matrix_RotateYS(-player->unk_B28, MTXMODE_APPLY);
+    }
+
+    Matrix_RotateYS(player->actor.shape.rot.y, MTXMODE_APPLY);
+    Matrix_RotateZS(player->actor.shape.rot.z, MTXMODE_APPLY);
+
+    Matrix_Scale(player->actor.scale.x * spB4 * 1.15f, player->actor.scale.y * spB8 * 1.15f,
+                 CLAMP_MIN(spB8, spB4) * player->actor.scale.z * 1.15f, MTXMODE_APPLY);
+    Matrix_RotateXS(player->actor.shape.rot.x, MTXMODE_APPLY);
+    Scene_SetRenderModeXlu(play, 0, 1);
+
+    extern Color_RGB8 D_8085D580;
+    extern Color_RGB8 D_8085D584;
+    Color_RGB8_Lerp(&D_8085D580, &D_8085D584, player->unk_B10[0], &spBC);
+
+    Gfx *goronCurled = PlayerModelManager_Actor_getDisplayList(&player->actor, PMM_DL_CURLED);
+
+    if (goronCurled) {
+        gDPSetEnvColor(POLY_OPA_DISP++, spBC.r, spBC.g, spBC.b, 255);
+        MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, play->state.gfxCtx);
+        gSPDisplayList(POLY_OPA_DISP++, goronCurled);
+    }
+
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+
 void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
     RemotePlayer *this = (RemotePlayer *)thisx;
     Player *player = &this->player;
@@ -147,5 +193,9 @@ void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
         return;
     }
 
-    Player_DrawGameplay(play, player, 1, gCullBackDList, RemotePlayer_OverrideLimbDrawGameplayDefault);
+    if (player->stateFlags3 & PLAYER_STATE3_1000 && player->transformation == PLAYER_FORM_GORON) {
+        RemotePlayer_DrawGoronCurled(this, play);
+    } else {
+        Player_DrawGameplay(play, player, 1, gCullBackDList, RemotePlayer_OverrideLimbDrawGameplayDefault);
+    }
 }

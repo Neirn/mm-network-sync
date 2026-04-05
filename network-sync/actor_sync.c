@@ -37,13 +37,18 @@ static NetworkExtendedActorData *GetActorNetworkData(Actor *actor) {
 // Must be kept in sync with ActorGameData in network-sync-rs/src/structs.rs !
 // Be wary of changing the order of / adding members of the struct; padding may be needed for alignment
 typedef struct {
+    // 4 byte aligned members
     Vec3f worldPosition;  // Generic
     Vec3f actorScale;     // Generic
     f32 shapeYOffset;     // Generic
+
+    // 2 byte aligned members
     s16 shapeFace;        // Generic
     Vec3s shapeRotation;  // Generic
     Vec3s upperLimbRot;   // Player
     Vec3s jointTable[24]; // Player
+
+    // 1 byte aligned members
     s8 currentMask;       // Player
     s8 currentShield;     // Player
     s8 modelGroup;        // Player
@@ -51,6 +56,7 @@ typedef struct {
     s8 transformation;    // Player
     s8 movementFlags;     // Player
     s8 isShielding;       // Player
+    s8 isGoronCurled;     // Player
 } ActorSyncData;
 
 // MARK: - Actor Sync Implementation
@@ -159,6 +165,7 @@ void ActorSyncUpdate(PlayState *play, Actor *actor) {
         syncData->transformation = player->transformation;
         syncData->movementFlags = player->skelAnime.movementFlags;
         syncData->isShielding = !!(player->stateFlags1 & PLAYER_STATE1_400000) && !Player_IsHoldingTwoHandedWeapon(player);
+        syncData->isGoronCurled = !!(player->stateFlags3 & PLAYER_STATE3_1000);
 
         for (int i = 0; i < ARRAY_COUNT(syncData->jointTable); i++) {
             Math_Vec3s_Copy(&syncData->jointTable[i], &player->skelAnime.jointTable[i]);
@@ -236,6 +243,10 @@ void ActorSyncProcessRemoteData(PlayState *play) {
 
                                 if (remote_data.isShielding) {
                                     player->stateFlags1 |= PLAYER_STATE1_400000;
+                                }
+
+                                if (remote_data.isGoronCurled) {
+                                    player->stateFlags3 |= PLAYER_STATE3_1000;
                                 }
 
                                 for (int k = 0; k < ARRAY_COUNT(remote_data.jointTable); k++) {
