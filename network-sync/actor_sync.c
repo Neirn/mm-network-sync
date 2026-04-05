@@ -158,7 +158,7 @@ void ActorSyncUpdate(PlayState *play, Actor *actor) {
         syncData->modelAnimType = player->modelAnimType;
         syncData->transformation = player->transformation;
         syncData->movementFlags = player->skelAnime.movementFlags;
-        syncData->isShielding = !!(player->stateFlags1 & PLAYER_STATE1_400000);
+        syncData->isShielding = !!(player->stateFlags1 & PLAYER_STATE1_400000) && !Player_IsHoldingTwoHandedWeapon(player);
 
         for (int i = 0; i < ARRAY_COUNT(syncData->jointTable); i++) {
             Math_Vec3s_Copy(&syncData->jointTable[i], &player->skelAnime.jointTable[i]);
@@ -234,7 +234,7 @@ void ActorSyncProcessRemoteData(PlayState *play) {
                                 player->stateFlags2 = 0;
                                 player->stateFlags3 = 0;
 
-                                if (remote_data.isShielding && !Player_IsHoldingTwoHandedWeapon(player)) {
+                                if (remote_data.isShielding) {
                                     player->stateFlags1 |= PLAYER_STATE1_400000;
                                 }
 
