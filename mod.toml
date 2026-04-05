@@ -30,10 +30,14 @@ authors = ["dcvz"]
 game_id = "mm"
 
 # Minimum version of the target recomp (e.g. Zelda 64: Recompiled) that this mod can run on.
-minimum_recomp_version = "1.2.0"
+minimum_recomp_version = "1.2.2"
 
 # Dependency mods. Each entry is the mod's ID and then an optional minimum version of the dependency mod.
 dependencies = []
+
+optional_dependencies = [
+    "yazmt_mm_bunnyhoodtweaks:0.1.0"
+]
 
 # Native libraries (e.g. DLLs) and the functions they export.
 native_libraries = [

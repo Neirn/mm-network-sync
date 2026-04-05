@@ -4,11 +4,18 @@
 #include "network_core.h"
 #include "string.h"
 
+// MARK: - Imports
+
+static bool sIsBHTEnabled;
+
+RECOMP_IMPORT("yazmt_mm_bunnyhoodtweaks", bool BunnyHoodTweaks_isPlayerRunSpeedModified(PlayState *play, Player *player));
+
 // MARK: - Actor Extension
 
 // Extension ID for network player data
 #define ACTOR_EXTENSION_INVALID UINT32_MAX
 static ActorExtensionId sNetworkSyncerExtension = ACTOR_EXTENSION_INVALID;
+static ActorExtensionId sPlayerExtension = ACTOR_EXTENSION_INVALID;
 
 #define MAX_ACTOR_CATEGORIES ACTORCAT_MAX
 #define MAX_SYNCED_ACTORS 32
@@ -23,6 +30,10 @@ typedef struct {
     // Flag indicating whether we are in charge of pushing its data to the server
     u8 is_owned_locally;
 } NetworkExtendedActorData;
+
+typedef struct PlayerExtensionData {
+    PlayerModelGroup mostRecentModelGroup;
+} PlayerExtensionData;
 
 static NetworkExtendedActorData *GetActorNetworkData(Actor *actor) {
     if (sNetworkSyncerExtension == ACTOR_EXTENSION_INVALID) {
@@ -66,7 +77,14 @@ void ActorSyncInit() {
     if (sNetworkSyncerExtension == ACTOR_EXTENSION_INVALID) {
         sNetworkSyncerExtension = z64recomp_extend_actor_all(sizeof(NetworkExtendedActorData));
         if (sNetworkSyncerExtension == ACTOR_EXTENSION_INVALID) {
-            recomp_printf("Failed to create network player extension\n");
+            recomp_printf("Failed to create network syncer extension\n");
+        }
+    }
+
+    if (sPlayerExtension == ACTOR_EXTENSION_INVALID) {
+        sPlayerExtension = z64recomp_extend_actor_all(sizeof(NetworkExtendedActorData));
+        if (sPlayerExtension == ACTOR_EXTENSION_INVALID) {
+            recomp_printf("Failed to create player extension\n");
         }
     }
 
@@ -74,6 +92,8 @@ void ActorSyncInit() {
     for (int i = 0; i < MAX_ACTOR_CATEGORIES; i++) {
         sSyncedActorCategories[i] = 0;
     }
+
+    sIsBHTEnabled = recomp_is_dependency_met("yazmt_mm_bunnyhoodtweaks") == DEPENDENCY_STATUS_FOUND;
 }
 
 const char *ActorSyncGetNetworkId(Actor *actor) {
@@ -142,6 +162,14 @@ void ActorSyncRegister(Actor *actor, const char *playerId, int isOwnedLocally) {
     }
 }
 
+RECOMP_HOOK("Player_SetModels") void onPlayer_SetModels(Player *player, PlayerModelGroup modelGroup) {
+    PlayerExtensionData *playerExt = z64recomp_get_extended_actor_data(&player->actor, sPlayerExtension);
+
+    if (playerExt) {
+        playerExt->mostRecentModelGroup = modelGroup;
+    }
+}
+
 void ActorSyncUpdate(PlayState *play, Actor *actor) {
     NetworkExtendedActorData *netData = GetActorNetworkData(actor);
 
@@ -172,6 +200,16 @@ void ActorSyncUpdate(PlayState *play, Actor *actor) {
         }
 
         Math_Vec3s_Copy(&syncData->upperLimbRot, &player->upperLimbRot);
+
+        PlayerExtensionData *playerExt = z64recomp_get_extended_actor_data(&player->actor, sPlayerExtension);
+        
+        if (playerExt) {
+            syncData->modelGroup = playerExt->mostRecentModelGroup;
+        }
+
+        if (sIsBHTEnabled && player->transformation == PLAYER_FORM_HUMAN && BunnyHoodTweaks_isPlayerRunSpeedModified(play, player) && player->currentMask == PLAYER_MASK_NONE) {
+            syncData->currentMask = PLAYER_MASK_BUNNY;
+        }
     }
 
     NetworkSyncSendActorUpdate(netData->actor_id, syncData);

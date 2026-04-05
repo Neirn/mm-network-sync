@@ -7,6 +7,7 @@
 #include "recompconfig.h"
 #include "appearancedatamanager.h"
 #include "messages.h"
+#include "z_remote_player.h"
 
 #ifdef _DEBUG
     #define SERVER_URL "ws://localhost:8080"
@@ -154,16 +155,16 @@ RECOMP_CALLBACK("*", recomp_on_play_main) void on_play_main(PlayState *play) {
 }
 
 RECOMP_CALLBACK(YAZMT_PMM_MOD_NAME, onMainModelChanged) void updateNetworkedPlayerAppearance(PlayerModelManagerModelType modelType, const char *internalNameOrNull) {
-    AppearanceDataManager_setLocalInternalName(modelType, internalNameOrNull);
+    AppearanceDataManager_queueModelChangedPacket(modelType);
 }
 
 // MARK: - Hooks
 
-RECOMP_HOOK("FileSelect_LoadGame") void OnFileSelect_LoadGame(PlayState *play) {
-    recomp_printf("FileSelect_LoadGame called\n");
-}
-
 RECOMP_HOOK("Player_Init") void OnPlayerInit(Actor *thisx, PlayState *play) {
+    if (!gHasConnected) {
+        return;
+    }
+
     // recomp_printf("Player initialized in scene %d\n", play->sceneId);
 
     if (GET_PLAYER(play) == NULL || thisx == &GET_PLAYER(play)->actor) {
@@ -189,8 +190,8 @@ RECOMP_HOOK("Player_Init") void OnPlayerInit(Actor *thisx, PlayState *play) {
 RECOMP_HOOK("Player_UseItem") void OnPlayer_UseItem(PlayState *play, Player *this, ItemId item) {
     ItemUsedMessage msg;
     msg.dummy_data = 7;
-    //recomp_printf("Player_UseItem called\n");
-    //NS_EmitMessage(MSG_ITEM_USED, &msg);
+    // recomp_printf("Player_UseItem called\n");
+    // NS_EmitMessage(MSG_ITEM_USED, &msg);
 }
 
 // MARK: - Remote Actor Processing
@@ -221,6 +222,9 @@ void remote_actors_update(PlayState *play) {
 
                 if (actorNetworkId != NULL && remoteId != NULL && strcmp(actorNetworkId, remoteId) == 0) {
                     ActorAppearanceDataHandle h = AppearanceDataManager_getAppearanceDataAndRefreshLifetime(actorNetworkId);
+                    SceneId sceneId;
+                    RemotePlayer *remotePlayer = (RemotePlayer *)actor;
+                    AppearanceDataManager_getSceneId(actorNetworkId, &remotePlayer->sceneId);
 
                     if (h && !PlayerModelManager_Actor_hasAppearanceData(actor)) {
                         recomp_printf("Attempting to assign appearance data to %s...\n", actorNetworkId);

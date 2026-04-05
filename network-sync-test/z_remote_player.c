@@ -83,6 +83,8 @@ void RemotePlayer_Init(Actor *thisx, PlayState *play) {
     FlexSkeletonHeader *goronShieldingSkelGlobal = SEGMENTED_TO_GLOBAL_PTR(goronObj, &gLinkGoronShieldingSkel);
 
     SkelAnime_InitFlex(play, &player->unk_2C8, goronShieldingSkelGlobal, goronShieldingAnimGlobal, player->jointTable, player->morphTable, goronShieldingSkelGlobal->sh.limbCount);
+
+    this->sceneId = SCENE_UNSET_01;
 }
 
 void RemotePlayer_Destroy(Actor *thisx, PlayState *play) {
@@ -93,6 +95,12 @@ void RemotePlayer_Destroy(Actor *thisx, PlayState *play) {
 
     recomp_free(player->maskObjectSegment);
 }
+
+static bool isClockTownOutdoorScene(SceneId sceneId) {
+    return (sceneId >= SCENE_TOWN && sceneId <= SCENE_ALLEY) || sceneId == SCENE_00KEIKOKU;
+}
+
+extern BunnyEarKinematics sBunnyEarKinematics;
 
 void RemotePlayer_Update(Actor *thisx, PlayState *play) {
     RemotePlayer *this = (RemotePlayer *)thisx;
@@ -118,10 +126,58 @@ void RemotePlayer_Update(Actor *thisx, PlayState *play) {
     };
 
     PlayerModelManager_Actor_setFormModelType(&player->actor, transformationToModelType[player->transformation]);
+
+    if (player->transformation == PLAYER_FORM_GORON) {
+        SkelAnime_Update(&player->unk_2C8);
+    }
+
+    bool shouldDraw = true;
+
+    if (this->sceneId != play->sceneId) {
+        shouldDraw = isClockTownOutdoorScene(play->sceneId) && isClockTownOutdoorScene(this->sceneId);
+    }
+
+    if (shouldDraw) {
+        player->actor.draw = RemotePlayer_Draw;
+        player->actor.flags |= ACTOR_FLAG_MINIMAP_ICON_ENABLED;
+    } else {
+        player->actor.draw = NULL;
+        player->actor.flags &= ~(ACTOR_FLAG_MINIMAP_ICON_ENABLED);
+    }
+
+    if (player->currentMask == PLAYER_MASK_BUNNY) {
+        static BunnyEarKinematics storedKinematics;
+        storedKinematics = sBunnyEarKinematics;
+        sBunnyEarKinematics = this->bunnyEarKinematics;
+
+        // TODO: figure out why the bunny hood ears / bunny ears are stiff
+        f32 realSpeed = player->actor.speed;
+        player->actor.speed = CLAMP_MAX(Math_Vec3f_DistXZ(&this->currHeadPos, &this->prevHeadPos), 8.8f);
+        Player_UpdateBunnyEars(player);
+        player->actor.speed = realSpeed;
+
+        sBunnyEarKinematics = storedKinematics;
+    }
 }
 
 s32 RemotePlayer_OverrideLimbDrawGameplayDefault(PlayState *play, s32 limbIndex, Gfx **dList, Vec3f *pos, Vec3s *rot, Actor *actor) {
-    return Player_OverrideLimbDrawGameplayDefault(play, limbIndex, dList, pos, rot, actor);
+    RemotePlayer *remotePlayer = (RemotePlayer *)actor;
+
+    s32 ret = Player_OverrideLimbDrawGameplayDefault(play, limbIndex, dList, pos, rot, actor);
+
+    return ret;
+}
+
+void RemotePlayer_PostLimbDrawGameplay(PlayState *play, s32 limbIndex, Gfx **dList1, Gfx **dList2, Vec3s *rot, Actor *actor) {
+    RemotePlayer *remotePlayer = (RemotePlayer *)actor;
+
+
+    if (limbIndex == PLAYER_LIMB_HEAD) {
+        Math_Vec3f_Copy(&remotePlayer->prevHeadPos, &remotePlayer->currHeadPos);
+        Math_Vec3f_Copy(&remotePlayer->currHeadPos, &remotePlayer->player.bodyPartsPos[PLAYER_BODYPART_HEAD]);
+    }
+
+    Player_PostLimbDrawGameplay(play, limbIndex, dList1, dList2, rot, actor);
 }
 
 // From z_player.c
@@ -170,6 +226,21 @@ static void RemotePlayer_DrawGoronCurled(RemotePlayer *this, PlayState *play) {
     CLOSE_DISPS(play->state.gfxCtx);
 }
 
+void RemotePlayer_DrawGameplay(PlayState *play, RemotePlayer *this, s32 lod, Gfx *cullDList, OverrideLimbDrawFlex overrideLimbDraw) {
+    Player *player = &this->player;
+
+    OPEN_DISPS(play->state.gfxCtx);
+
+    gSPSegment(POLY_OPA_DISP++, 0x0C, cullDList);
+    gSPSegment(POLY_XLU_DISP++, 0x0C, cullDList);
+
+    Player_DrawImpl(play, player->skelAnime.skeleton, player->skelAnime.jointTable, player->skelAnime.dListCount, lod,
+                    player->transformation, 0, player->actor.shape.face, overrideLimbDraw, RemotePlayer_PostLimbDrawGameplay,
+                    &player->actor);
+
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+
 void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
     RemotePlayer *this = (RemotePlayer *)thisx;
     Player *player = &this->player;
@@ -187,15 +258,25 @@ void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
 
     PlayerModelManager_updatePlayerAssets(player);
 
-    Player_SetModelGroup(player, player->modelGroup);
+    Player_SetModels(player, player->modelGroup);
 
     if (player->currentMask == PLAYER_MASK_STONE) {
         return;
     }
 
+    static BunnyEarKinematics storedKinematics;
+    storedKinematics = sBunnyEarKinematics;
+
+    sBunnyEarKinematics = this->bunnyEarKinematics;
+
     if (player->stateFlags3 & PLAYER_STATE3_1000 && player->transformation == PLAYER_FORM_GORON) {
         RemotePlayer_DrawGoronCurled(this, play);
+    } else if (player->stateFlags1 & PLAYER_STATE1_400000 && player->transformation == PLAYER_FORM_GORON) {
+        func_80846460(player);
+        SkelAnime_DrawFlexOpa(play, player->unk_2C8.skeleton, player->unk_2C8.jointTable, player->unk_2C8.dListCount, NULL, NULL, NULL);
     } else {
-        Player_DrawGameplay(play, player, 1, gCullBackDList, RemotePlayer_OverrideLimbDrawGameplayDefault);
+        RemotePlayer_DrawGameplay(play, this, 1, gCullBackDList, RemotePlayer_OverrideLimbDrawGameplayDefault);
     }
+
+    sBunnyEarKinematics = storedKinematics;
 }

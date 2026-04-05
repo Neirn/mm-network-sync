@@ -11,6 +11,7 @@ RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_ActorAppearanceData_re
 RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_AppearanceData_setTunicColor(ActorAppearanceDataHandle h, PlayerModelManagerModelType type, Color_RGBA8 color));
 RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_Actor_getTunicColor(Actor *actor, Color_RGBA8 *out));
 RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, PlayerModelManagerModelType PlayerModelManager_Actor_getFormModelType(Actor *actor));
+RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, const char *PlayerModelManager_Actor_getModelName(Actor *actor, PlayerModelManagerModelType type));
 
 // Play_Main refreshes at 20 times a second
 #define APPEARANCE_DATA_LIFETIME_REFRESH (5 * 20)
@@ -20,6 +21,19 @@ RECOMP_IMPORT("mm_network_sync", u8 NS_EmitMessage(const char *messageId, void *
 
 extern char gLocalPlayerId[UUID_STRING_LENGTH];
 extern bool gHasLocalPlayer;
+
+typedef struct AppearanceData AppearanceData;
+
+typedef struct AppearanceData {
+    ActorAppearanceDataHandle handle;
+    SceneId sceneId;
+    int lifetime;
+    AppearanceData *next;
+    AppearanceData *prev;
+    char id[UUID_STRING_LENGTH];
+} AppearanceData;
+
+static AppearanceData *getAppearanceData(const char *id, bool shouldRefresh);
 
 void handleRequestModelDataMessage(void *data) {
     RequestModelDataMessage *msg = data;
@@ -33,29 +47,20 @@ void handleRequestModelDataMessage(void *data) {
     }
 }
 
-void handleTunicColorMessage(void *data) {
-    SetTunicColorMessage *msg = data;
+void handlePuppetUpdateMessage(void *data) {
+    PuppetUpdateMessage *msg = data;
 
-    if (msg->id[0] != '\0') {
-        ActorAppearanceDataHandle h = AppearanceDataManager_getAppearanceDataAndRefreshLifetime(msg->id);
+    if (msg->networkId[0] != '\0') {
+        AppearanceData *data = getAppearanceData(msg->networkId, true);
 
-        if (h) {
-            PlayerModelManager_AppearanceData_setTunicColor(h, msg->modelType, msg->color);
+        if (data) {
+            PlayerModelManager_AppearanceData_setTunicColor(data->handle, msg->modelType, msg->color);
+            data->sceneId = msg->sceneId;
         }
     }
 }
 
 static YAZMTCore_StringU32Dictionary *sIdToAppearanceData;
-
-typedef struct AppearanceData AppearanceData;
-
-typedef struct AppearanceData {
-    ActorAppearanceDataHandle handle;
-    int lifetime;
-    AppearanceData *next;
-    AppearanceData *prev;
-    char id[UUID_STRING_LENGTH];
-} AppearanceData;
 
 static AppearanceData *sAppearanceDataListStart;
 
@@ -66,7 +71,8 @@ static AppearanceData *createAppearanceData(const char *id) {
     data->next = sAppearanceDataListStart;
     data->prev = NULL;
     data->lifetime = APPEARANCE_DATA_LIFETIME_REFRESH;
-    Lib_MemCpy(data->id, id, UUID_STRING_LENGTH);
+    data->sceneId = SCENE_UNSET_01;
+    Lib_MemCpy(data->id, (char *)id, UUID_STRING_LENGTH);
     data->id[UUID_STRING_LENGTH - 1] = '\0';
 
     if (!data->handle) {
@@ -85,7 +91,7 @@ static AppearanceData *createAppearanceData(const char *id) {
     return data;
 }
 
-static AppearanceData *getAppearanceData(const char *id) {
+static AppearanceData *getAppearanceData(const char *id, bool shouldRefresh) {
     uintptr_t retrievedData = 0;
 
     YAZMTCore_StringU32Dictionary_get(sIdToAppearanceData, id, &retrievedData);
@@ -95,39 +101,30 @@ static AppearanceData *getAppearanceData(const char *id) {
     if (appearanceData) {
         AppearanceData *data = (AppearanceData *)retrievedData;
 
-        data->lifetime = APPEARANCE_DATA_LIFETIME_REFRESH;
+        if (shouldRefresh) {
+            data->lifetime = APPEARANCE_DATA_LIFETIME_REFRESH;
+        }
     }
 
     return appearanceData;
 }
 
-typedef enum GetOrCreateAppearanceDataResult {
-    GOCAD_ERROR = 0,
-    GOCAD_ALREADY_EXISTED = 1,
-    GOCAD_CREATED = 2,
-} GetOrCreateAppearanceDataResult;
+static AppearanceData *getOrCreateAppearanceData(const char *id, bool shouldRefresh) {
+    if (id) {
+        if (!YAZMTCore_StringU32Dictionary_contains(sIdToAppearanceData, id)) {
+            createAppearanceData(id);
 
-static GetOrCreateAppearanceDataResult getOrCreateAppearanceData(const char *id, AppearanceData **out) {
-    if (!id || !out) {
-        return GOCAD_ERROR;
+            RequestModelDataMessage msg;
+
+            strcpy(msg.idBeingRequested, id);
+
+            NS_EmitMessage(MSG_REQUEST_MODEL_DATA, &msg);
+        }
+
+        return getAppearanceData(id, shouldRefresh);
     }
 
-    GetOrCreateAppearanceDataResult ret = GOCAD_ALREADY_EXISTED;
-
-    if (!YAZMTCore_StringU32Dictionary_contains(sIdToAppearanceData, id)) {
-        createAppearanceData(id);
-        ret = GOCAD_CREATED;
-    }
-
-    AppearanceData *data = getAppearanceData(id);
-
-    if (!data) {
-        ret = GOCAD_ERROR;
-    } else {
-        *out = data;
-    }
-
-    return ret;
+    return NULL;
 }
 
 static void destroyAppearanceData(AppearanceData *data) {
@@ -157,20 +154,11 @@ void AppearanceDataManager_init(void) {
     sIdToAppearanceData = YAZMTCore_StringU32Dictionary_new();
 
     NS_RegisterMessageHandler(MSG_REQUEST_MODEL_DATA, sizeof(RequestModelDataMessage), handleRequestModelDataMessage);
-    NS_RegisterMessageHandler(MSG_SET_SUNIC_COLOR, sizeof(SetTunicColorMessage), handleTunicColorMessage);
+    NS_RegisterMessageHandler(MSG_PUPPET_UPDATE, sizeof(PuppetUpdateMessage), handlePuppetUpdateMessage);
 }
 
 ActorAppearanceDataHandle AppearanceDataManager_getAppearanceDataAndRefreshLifetime(const char *key) {
-    AppearanceData *data = NULL;
-    GetOrCreateAppearanceDataResult res = getOrCreateAppearanceData(key, &data);
-
-    if (res == GOCAD_CREATED) {
-        RequestModelDataMessage msg;
-
-        strcpy(msg.idBeingRequested, data->id);
-
-        NS_EmitMessage(MSG_REQUEST_MODEL_DATA, &msg);
-    }
+    AppearanceData *data = getOrCreateAppearanceData(key, true);
 
     if (data) {
         return data->handle;
@@ -181,27 +169,25 @@ ActorAppearanceDataHandle AppearanceDataManager_getAppearanceDataAndRefreshLifet
 
 typedef struct LocalAppearanceTracker {
     bool isNeedsRefresh;
-    char modelName[MAX_MODEL_NAME_LEN];
 } LocalAppearanceTracker;
 
 static LocalAppearanceTracker sLocalAppearanceTracker[PMM_MODEL_TYPE_MAX];
-
-void AppearanceDataManager_setLocalInternalName(PlayerModelManagerModelType modelType, const char *internalName) {
-    if (modelType >= 0 && modelType < PMM_MODEL_TYPE_MAX) {
-        if (!internalName) {
-            internalName = "";
-        }
-
-        sLocalAppearanceTracker[modelType].isNeedsRefresh = strcmp(internalName, sLocalAppearanceTracker[modelType].modelName) != 0;
-
-        strcpy(sLocalAppearanceTracker[modelType].modelName, internalName);
-    }
-}
 
 void AppearanceDataManager_queueModelChangedPacket(PlayerModelManagerModelType modelType) {
     if (modelType >= 0 && modelType < PMM_MODEL_TYPE_MAX) {
         sLocalAppearanceTracker[modelType].isNeedsRefresh = true;
     }
+}
+
+bool AppearanceDataManager_getSceneId(const char *key, s16 *out) {
+    AppearanceData *appearanceData = getAppearanceData(key, true);
+
+    if (appearanceData && out) {
+        *out = appearanceData->sceneId;
+        return true;
+    }
+
+    return false;
 }
 
 RECOMP_HOOK("Play_Main") void updateAppearanceDataManager_onPlay_Main(PlayState *play) {
@@ -219,8 +205,10 @@ RECOMP_HOOK("Play_Main") void updateAppearanceDataManager_onPlay_Main(PlayState 
         curr = next;
     }
 
-    if (gHasLocalPlayer) {
-        const int MAX_REFRESHES = 8;
+    Player *player = GET_PLAYER(play);
+
+    if (gHasLocalPlayer && player) {
+        const int MAX_REFRESHES = 4;
         int numRefreshMessages = 0;
 
         for (int i = 0; i < PMM_MODEL_TYPE_MAX && numRefreshMessages < MAX_REFRESHES; ++i) {
@@ -228,8 +216,11 @@ RECOMP_HOOK("Play_Main") void updateAppearanceDataManager_onPlay_Main(PlayState 
 
             if (curr->isNeedsRefresh) {
                 numRefreshMessages++;
+                curr->isNeedsRefresh = false;
 
-                if (curr->modelName[0] == '\0') {
+                const char *modelName = PlayerModelManager_Actor_getModelName(&player->actor, i);
+
+                if (!modelName || modelName[0] == '\0') {
                     ModelRemovedMessage msg;
 
                     strcpy(msg.id, gLocalPlayerId);
@@ -241,25 +232,24 @@ RECOMP_HOOK("Play_Main") void updateAppearanceDataManager_onPlay_Main(PlayState 
 
                     strcpy(msg.id, gLocalPlayerId);
                     msg.modelType = i;
-                    strcpy(msg.modelName, curr->modelName);
+                    strcpy(msg.modelName, modelName);
 
                     NS_EmitMessage(MSG_MODEL_SET, &msg);
                 }
-
-                curr->isNeedsRefresh = false;
             }
         }
 
         Color_RGBA8 tunicColor;
         if (PlayerModelManager_Actor_getTunicColor(&GET_PLAYER(play)->actor, &tunicColor)) {
-            SetTunicColorMessage msg;
+            PuppetUpdateMessage msg;
 
             msg.color = tunicColor;
-            strcpy(msg.id, gLocalPlayerId);
+            strcpy(msg.networkId, gLocalPlayerId);
             msg.modelType = PlayerModelManager_Actor_getFormModelType(&GET_PLAYER(play)->actor);
+            msg.sceneId = play->sceneId;
 
             if (msg.modelType != PMM_MODEL_TYPE_NONE) {
-                NS_EmitMessage(MSG_SET_SUNIC_COLOR, &msg);
+                NS_EmitMessage(MSG_PUPPET_UPDATE, &msg);
             }
         }
     }

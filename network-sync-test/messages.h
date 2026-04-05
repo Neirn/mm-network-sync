@@ -29,11 +29,12 @@ typedef struct RequestModelDataMessage {
     char idBeingRequested[UUID_STRING_LENGTH];
 } RequestModelDataMessage;
 
-#define MSG_SET_SUNIC_COLOR "set_tunic_color"
-typedef struct SetTunicColorMessage {
+#define MSG_PUPPET_UPDATE "puppet_update"
+typedef struct PuppetUpdateMessage {
     PlayerModelManagerModelType modelType;
     Color_RGBA8 color;
-    char id[UUID_STRING_LENGTH];
-} SetTunicColorMessage;
+    s16 sceneId;
+    char networkId[UUID_STRING_LENGTH];
+} PuppetUpdateMessage;
 
 #endif
