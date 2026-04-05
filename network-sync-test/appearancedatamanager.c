@@ -187,7 +187,7 @@ typedef struct LocalAppearanceTracker {
 static LocalAppearanceTracker sLocalAppearanceTracker[PMM_MODEL_TYPE_MAX];
 
 void AppearanceDataManager_setLocalInternalName(PlayerModelManagerModelType modelType, const char *internalName) {
-    if (modelType >= 0 && modelType < PMM_MODEL_TYPE_MAX && modelType != PMM_MODEL_TYPE_MODEL_PACK) {
+    if (modelType >= 0 && modelType < PMM_MODEL_TYPE_MAX) {
         if (!internalName) {
             internalName = "";
         }
@@ -199,7 +199,7 @@ void AppearanceDataManager_setLocalInternalName(PlayerModelManagerModelType mode
 }
 
 void AppearanceDataManager_queueModelChangedPacket(PlayerModelManagerModelType modelType) {
-    if (modelType >= 0 && modelType < PMM_MODEL_TYPE_MAX && modelType != PMM_MODEL_TYPE_MODEL_PACK) {
+    if (modelType >= 0 && modelType < PMM_MODEL_TYPE_MAX) {
         sLocalAppearanceTracker[modelType].isNeedsRefresh = true;
     }
 }
@@ -245,6 +245,8 @@ RECOMP_HOOK("Play_Main") void updateAppearanceDataManager_onPlay_Main(PlayState 
 
                     NS_EmitMessage(MSG_MODEL_SET, &msg);
                 }
+
+                curr->isNeedsRefresh = false;
             }
         }
 
