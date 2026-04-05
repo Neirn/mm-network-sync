@@ -143,5 +143,9 @@ void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
 
     Player_SetModelGroup(player, player->modelGroup);
 
+    if (player->currentMask == PLAYER_MASK_STONE) {
+        return;
+    }
+
     Player_DrawGameplay(play, player, 1, gCullBackDList, RemotePlayer_OverrideLimbDrawGameplayDefault);
 }
