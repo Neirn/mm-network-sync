@@ -27,6 +27,7 @@ typedef struct AppearanceData AppearanceData;
 typedef struct AppearanceData {
     ActorAppearanceDataHandle handle;
     SceneId sceneId;
+    EquipValueSword swordEquipValue;
     int lifetime;
     AppearanceData *next;
     AppearanceData *prev;
@@ -56,6 +57,7 @@ void handlePuppetUpdateMessage(void *data) {
         if (data) {
             PlayerModelManager_AppearanceData_setTunicColor(data->handle, msg->modelType, msg->color);
             data->sceneId = msg->sceneId;
+            data->swordEquipValue = msg->swordEquipValue;
         }
     }
 }
@@ -190,6 +192,16 @@ bool AppearanceDataManager_getSceneId(const char *key, s16 *out) {
     return false;
 }
 
+EquipValueSword AppearanceDataManager_getSwordEquipValue(const char *key) {
+    AppearanceData *appearanceData = getAppearanceData(key, true);
+
+    if (appearanceData) {
+        return appearanceData->swordEquipValue;
+    }
+
+    return EQUIP_VALUE_SWORD_NONE;
+}
+
 RECOMP_HOOK("Play_Main") void updateAppearanceDataManager_onPlay_Main(PlayState *play) {
     AppearanceData *curr = sAppearanceDataListStart;
 
@@ -247,6 +259,7 @@ RECOMP_HOOK("Play_Main") void updateAppearanceDataManager_onPlay_Main(PlayState 
             strcpy(msg.networkId, gLocalPlayerId);
             msg.modelType = PlayerModelManager_Actor_getFormModelType(&GET_PLAYER(play)->actor);
             msg.sceneId = play->sceneId;
+            msg.swordEquipValue = GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SWORD);
 
             if (msg.modelType != PMM_MODEL_TYPE_NONE) {
                 NS_EmitMessage(MSG_PUPPET_UPDATE, &msg);

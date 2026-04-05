@@ -225,6 +225,7 @@ void remote_actors_update(PlayState *play) {
                     SceneId sceneId;
                     RemotePlayer *remotePlayer = (RemotePlayer *)actor;
                     AppearanceDataManager_getSceneId(actorNetworkId, &remotePlayer->sceneId);
+                    remotePlayer->swordEquipValue = AppearanceDataManager_getSwordEquipValue(actorNetworkId);
 
                     if (h && !PlayerModelManager_Actor_hasAppearanceData(actor)) {
                         recomp_printf("Attempting to assign appearance data to %s...\n", actorNetworkId);

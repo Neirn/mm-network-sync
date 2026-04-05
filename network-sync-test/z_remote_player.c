@@ -8,6 +8,8 @@ RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, const char *PlayerModelManager_AppearanceData_
 RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_Actor_getTunicColor(Actor *actor, Color_RGBA8 *out));
 RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, void PlayerModelManager_updatePlayerAssets(Player *player));
 
+RECOMP_IMPORT("*", void actor_set_interpolation_skipped(Actor *actor));
+
 #define FLAGS                                                                                  \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED | \
      ACTOR_FLAG_DRAW_CULLING_DISABLED | ACTOR_FLAG_UPDATE_DURING_SOARING_AND_SOT_CS |          \
@@ -108,6 +110,10 @@ void RemotePlayer_Update(Actor *thisx, PlayState *play) {
 
     forceObjectDependency(sPlayerObjects[player->transformation]);
 
+    if (this->prevTransformation != player->transformation) {
+        actor_set_interpolation_skipped(&player->actor);
+    }
+
     // Let PMM handle age properties for human (handles adult age props)
     if (player->transformation != PLAYER_FORM_HUMAN) {
         player->ageProperties = &sPlayerAgeProperties[player->transformation];
@@ -158,6 +164,8 @@ void RemotePlayer_Update(Actor *thisx, PlayState *play) {
 
         sBunnyEarKinematics = storedKinematics;
     }
+
+    this->prevTransformation = player->transformation;
 }
 
 s32 RemotePlayer_OverrideLimbDrawGameplayDefault(PlayState *play, s32 limbIndex, Gfx **dList, Vec3f *pos, Vec3s *rot, Actor *actor) {
@@ -241,7 +249,31 @@ void RemotePlayer_DrawGameplay(PlayState *play, RemotePlayer *this, s32 lod, Gfx
     CLOSE_DISPS(play->state.gfxCtx);
 }
 
+static void RemotePlayer_SetModels(Player *player, PlayerModelGroup modelGroup) {
+    extern Gfx **sPlayerDListGroups[PLAYER_MODELTYPE_MAX];
+    extern s32 D_801F59E0;
+
+    PlayerModelIndices *playerModelTypes;
+
+    D_801F59E0 = player->transformation * 2;
+    player->leftHandType = gPlayerModelTypes[modelGroup].leftHandType;
+    player->rightHandType = gPlayerModelTypes[modelGroup].rightHandType;
+    player->sheathType = gPlayerModelTypes[modelGroup].sheathType;
+
+    playerModelTypes = &gPlayerModelTypes[modelGroup];
+
+    player->leftHandDLists = &sPlayerDListGroups[playerModelTypes->leftHandType][D_801F59E0];
+    player->rightHandDLists = &sPlayerDListGroups[playerModelTypes->rightHandType][D_801F59E0];
+    player->sheathDLists = &sPlayerDListGroups[playerModelTypes->sheathType][D_801F59E0];
+    player->waistDLists = &sPlayerDListGroups[playerModelTypes->waistType][D_801F59E0];
+
+    Player_SetModelsForHoldingShield(player);
+}
+
 void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
+    // This function should NOT return early
+    // If it does, it risks not restoring some variables
+
     RemotePlayer *this = (RemotePlayer *)thisx;
     Player *player = &this->player;
 
@@ -256,13 +288,12 @@ void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
         CLOSE_DISPS(play->state.gfxCtx);
     }
 
+    EquipValueSword realEquipValue = GET_CUR_EQUIP_VALUE(EQUIP_TYPE_SWORD);
+    SET_EQUIP_VALUE(EQUIP_TYPE_SWORD, this->swordEquipValue);
+
     PlayerModelManager_updatePlayerAssets(player);
 
-    Player_SetModels(player, player->modelGroup);
-
-    if (player->currentMask == PLAYER_MASK_STONE) {
-        return;
-    }
+    RemotePlayer_SetModels(player, player->modelGroup);
 
     static BunnyEarKinematics storedKinematics;
     storedKinematics = sBunnyEarKinematics;
@@ -274,9 +305,13 @@ void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
     } else if (player->stateFlags1 & PLAYER_STATE1_400000 && player->transformation == PLAYER_FORM_GORON) {
         func_80846460(player);
         SkelAnime_DrawFlexOpa(play, player->unk_2C8.skeleton, player->unk_2C8.jointTable, player->unk_2C8.dListCount, NULL, NULL, NULL);
+    } else if (player->currentMask == PLAYER_MASK_STONE) {
+
     } else {
         RemotePlayer_DrawGameplay(play, this, 1, gCullBackDList, RemotePlayer_OverrideLimbDrawGameplayDefault);
     }
 
     sBunnyEarKinematics = storedKinematics;
+
+    SET_EQUIP_VALUE(EQUIP_TYPE_SWORD, realEquipValue);
 }

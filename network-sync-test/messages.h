@@ -34,6 +34,7 @@ typedef struct PuppetUpdateMessage {
     PlayerModelManagerModelType modelType;
     Color_RGBA8 color;
     s16 sceneId;
+    s8 swordEquipValue;
     char networkId[UUID_STRING_LENGTH];
 } PuppetUpdateMessage;
 

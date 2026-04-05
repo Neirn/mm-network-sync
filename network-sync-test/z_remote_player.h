@@ -21,6 +21,8 @@ typedef struct RemotePlayer {
     Vec3f currHeadPos;
     s16 sceneId;
     BunnyEarKinematics bunnyEarKinematics;
+    s8 swordEquipValue;
+    s8 prevTransformation;
 } RemotePlayer;
 
 PlayerAnimationHeader *Player_GetIdleAnim(Player *this);
