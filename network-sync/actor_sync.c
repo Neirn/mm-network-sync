@@ -33,6 +33,7 @@ typedef struct {
 
 typedef struct PlayerExtensionData {
     PlayerModelGroup mostRecentModelGroup;
+    Vec3s realPlayerRot[PLAYER_LIMB_MAX];
 } PlayerExtensionData;
 
 static NetworkExtendedActorData *GetActorNetworkData(Actor *actor) {
@@ -52,6 +53,7 @@ typedef struct {
     Vec3f worldPosition;  // Generic
     Vec3f actorScale;     // Generic
     f32 shapeYOffset;     // Generic
+    f32 playerUnk_AB8;    // Player (Related to y offset)
 
     // 2 byte aligned members
     s16 shapeFace;        // Generic
@@ -194,6 +196,7 @@ void ActorSyncUpdate(PlayState *play, Actor *actor) {
         syncData->movementFlags = player->skelAnime.movementFlags;
         syncData->isShielding = !!(player->stateFlags1 & PLAYER_STATE1_400000) && !Player_IsHoldingTwoHandedWeapon(player);
         syncData->isGoronCurled = !!(player->stateFlags3 & PLAYER_STATE3_1000);
+        syncData->playerUnk_AB8 = player->unk_AB8;
 
         for (int i = 0; i < ARRAY_COUNT(syncData->jointTable); i++) {
             Math_Vec3s_Copy(&syncData->jointTable[i], &player->skelAnime.jointTable[i]);
@@ -275,6 +278,7 @@ void ActorSyncProcessRemoteData(PlayState *play) {
                                 player->modelGroup = remote_data.modelGroup;
                                 player->modelAnimType = remote_data.modelAnimType;
                                 player->skelAnime.movementFlags = remote_data.movementFlags;
+                                player->unk_AB8 = remote_data.playerUnk_AB8;
                                 player->stateFlags1 = 0;
                                 player->stateFlags2 = 0;
                                 player->stateFlags3 = 0;

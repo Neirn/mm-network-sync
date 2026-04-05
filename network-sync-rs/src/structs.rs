@@ -31,6 +31,7 @@ pub struct ActorGameData {
     pub world_position: Vec3f,
     pub actor_scale: Vec3f,
     pub shape_y_offset: f32,
+    pub player_unk_ab8: f32,
     pub shape_face: i16,
     pub shape_rotation: Vec3s,
     pub upper_limb_rot: Vec3s,

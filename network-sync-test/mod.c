@@ -167,7 +167,13 @@ RECOMP_HOOK("Player_Init") void OnPlayerInit(Actor *thisx, PlayState *play) {
 
     // recomp_printf("Player initialized in scene %d\n", play->sceneId);
 
-    if (GET_PLAYER(play) == NULL || thisx == &GET_PLAYER(play)->actor) {
+    PlayerStartMode startMode = PLAYER_GET_START_MODE(thisx);
+
+    if (startMode == PLAYER_START_MODE_TELESCOPE || startMode == PLAYER_START_MODE_NOTHING) {
+        return;
+    }
+
+    if ((GET_PLAYER(play) == NULL || thisx == &GET_PLAYER(play)->actor) && PLAYER_GET_START_MODE(thisx) != PLAYER_START_MODE_TELESCOPE) {
         // Check if we already have a local player registered
         if (gHasLocalPlayer) {
             recomp_printf("Local player already exists with ID %s, updating actor reference\n", gLocalPlayerId);

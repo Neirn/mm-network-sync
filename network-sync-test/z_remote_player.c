@@ -166,6 +166,12 @@ void RemotePlayer_Update(Actor *thisx, PlayState *play) {
     }
 
     this->prevTransformation = player->transformation;
+
+    if (player->skelAnime.movementFlags & ANIM_FLAG_ENABLE_MOVEMENT) {
+        AnimTaskQueue_AddActorMovement(play, &player->actor, &player->skelAnime,
+                                       (player->skelAnime.movementFlags & ANIM_FLAG_4) ? 1.0f
+                                                                                       : player->ageProperties->unk_08);
+    }
 }
 
 s32 RemotePlayer_OverrideLimbDrawGameplayDefault(PlayState *play, s32 limbIndex, Gfx **dList, Vec3f *pos, Vec3s *rot, Actor *actor) {
@@ -178,7 +184,6 @@ s32 RemotePlayer_OverrideLimbDrawGameplayDefault(PlayState *play, s32 limbIndex,
 
 void RemotePlayer_PostLimbDrawGameplay(PlayState *play, s32 limbIndex, Gfx **dList1, Gfx **dList2, Vec3s *rot, Actor *actor) {
     RemotePlayer *remotePlayer = (RemotePlayer *)actor;
-
 
     if (limbIndex == PLAYER_LIMB_HEAD) {
         Math_Vec3f_Copy(&remotePlayer->prevHeadPos, &remotePlayer->currHeadPos);
