@@ -5,8 +5,8 @@
 #include "yazmtcorelib_api.h"
 #include "playermodelmanager_api.h"
 #include "recompconfig.h"
-
-#define UUID_STRING_LENGTH 37
+#include "appearancedatamanager.h"
+#include "messages.h"
 
 #ifdef _DEBUG
     #define SERVER_URL "ws://localhost:8080"
@@ -31,22 +31,15 @@ RECOMP_IMPORT("mm_network_sync", u8 NS_EmitMessage(const char *messageId, void *
 RECOMP_IMPORT("ProxyMM_Notifications", void Notifications_Emit(const char *prefix, const char *msg, const char *suffix));
 RECOMP_IMPORT("ProxyMM_CustomActor", s16 CustomActor_Register(ActorProfile *profile));
 
-RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, ActorAppearanceDataHandle PlayerModelManager_ActorAppearanceData_createData(void));
-RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_ActorAppearanceData_releaseHandle(ActorAppearanceDataHandle h));
 RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_ActorAppearanceData_assignModel(ActorAppearanceDataHandle h, PlayerModelManagerModelType type, const char *internalName));
 RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_ActorAppearanceData_assignDataToActor(Actor *actor, ActorAppearanceDataHandle h));
+RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_Actor_setTunicColor(Actor *actor, Color_RGBA8 color));
 
 // MARK: - Forward Declarations
 
 void remote_actors_update(PlayState *play);
 
 // MARK: - Emit / Receive Remote Events
-
-#define MSG_ITEM_USED "item_used"
-
-typedef struct {
-    u32 dummy_data;
-} ItemUsedMessage;
 
 void handle_item_used_message(void *data) {
     ItemUsedMessage *msg = (ItemUsedMessage *)data;
@@ -57,33 +50,31 @@ void handle_item_used_message(void *data) {
     );
 }
 
-typedef struct AppearanceData {
-    ActorAppearanceDataHandle handle;
-    int refCount;
-} AppearanceData;
-
-static AppearanceData *getAppearanceData(const char *id);
-
-#define MAX_MODEL_NAME_LEN 255
-typedef struct AppearanceChangedMessage {
-    char id[UUID_STRING_LENGTH];
-    char modelName[MAX_MODEL_NAME_LEN];
-    PlayerModelManagerModelType modelType;
-} AppearanceChangedMessage;
-
-#define MSG_APPEARANCE_CHANGED "model_changed"
-
-void handleAppearanceChangedMessage(void *data) {
-    AppearanceChangedMessage *msg = data;
+void handleModelSetMessage(void *data) {
+    ModelSetMessage *msg = data;
 
     msg->id[UUID_STRING_LENGTH - 1] = '\0';
     msg->modelName[MAX_MODEL_NAME_LEN - 1] = '\0';
 
     if (msg->id[0] != '\0') {
-        AppearanceData *appearanceData = getAppearanceData(msg->id);
+        ActorAppearanceDataHandle h = AppearanceDataManager_getAppearanceDataAndRefreshLifetime(msg->id);
 
-        if (appearanceData) {
-            PlayerModelManager_ActorAppearanceData_assignModel(appearanceData->handle, msg->modelType, msg->modelName);
+        if (h) {
+            PlayerModelManager_ActorAppearanceData_assignModel(h, msg->modelType, msg->modelName);
+        }
+    }
+}
+
+void handleModelRemovedMessage(void *data) {
+    ModelRemovedMessage *msg = data;
+
+    msg->id[UUID_STRING_LENGTH - 1] = '\0';
+
+    if (msg->id[0] != '\0') {
+        ActorAppearanceDataHandle h = AppearanceDataManager_getAppearanceDataAndRefreshLifetime(msg->id);
+
+        if (h) {
+            PlayerModelManager_ActorAppearanceData_assignModel(h, msg->modelType, NULL);
         }
     }
 }
@@ -98,9 +89,7 @@ s16 ACTOR_REMOTE_PLAYER = ACTOR_ID_MAX;
 u8 gHasConnected;
 // Track local player actor ID
 char gLocalPlayerId[UUID_STRING_LENGTH];
-static u8 gHasLocalPlayer;
-
-static YAZMTCore_StringU32Dictionary *sIdToAppearanceData;
+bool gHasLocalPlayer;
 
 RECOMP_CALLBACK("*", recomp_on_init) void init_runtime() {
     NS_Init();
@@ -109,9 +98,11 @@ RECOMP_CALLBACK("*", recomp_on_init) void init_runtime() {
     // Register message handlers
     NS_RegisterMessageHandler(MSG_ITEM_USED, sizeof(ItemUsedMessage), handle_item_used_message);
 
-    NS_RegisterMessageHandler(MSG_APPEARANCE_CHANGED, sizeof(AppearanceChangedMessage), handleAppearanceChangedMessage);
+    NS_RegisterMessageHandler(MSG_MODEL_SET, sizeof(ModelSetMessage), handleModelSetMessage);
 
-    sIdToAppearanceData = YAZMTCore_StringU32Dictionary_new();
+    NS_RegisterMessageHandler(MSG_MODEL_REMOVED, sizeof(ModelSetMessage), handleModelRemovedMessage);
+
+    AppearanceDataManager_init();
 }
 
 RECOMP_CALLBACK("*", recomp_on_play_init) void on_play_init(PlayState *play) {
@@ -163,13 +154,7 @@ RECOMP_CALLBACK("*", recomp_on_play_main) void on_play_main(PlayState *play) {
 }
 
 RECOMP_CALLBACK(YAZMT_PMM_MOD_NAME, onMainModelChanged) void updateNetworkedPlayerAppearance(PlayerModelManagerModelType modelType, const char *internalNameOrNull) {
-    AppearanceChangedMessage msg;
-
-    strcpy(msg.id, gLocalPlayerId);
-    strcpy(msg.modelName, internalNameOrNull ? internalNameOrNull : "");
-    msg.modelType = modelType;
-
-    NS_EmitMessage(MSG_APPEARANCE_CHANGED, &msg);
+    AppearanceDataManager_setLocalInternalName(modelType, internalNameOrNull);
 }
 
 // MARK: - Hooks
@@ -194,7 +179,7 @@ RECOMP_HOOK("Player_Init") void OnPlayerInit(Actor *thisx, PlayState *play) {
             const char *actorNetworkId = NS_GetActorNetworkId(thisx);
             if (actorNetworkId != NULL) {
                 strcpy(gLocalPlayerId, actorNetworkId);
-                gHasLocalPlayer = 1;
+                gHasLocalPlayer = true;
                 recomp_printf("Saved local player ID: %s\n", gLocalPlayerId);
             }
         }
@@ -208,80 +193,11 @@ RECOMP_HOOK("Player_UseItem") void OnPlayer_UseItem(PlayState *play, Player *thi
     //NS_EmitMessage(MSG_ITEM_USED, &msg);
 }
 
-static void destroyAppearanceData(const char *id);
-static AppearanceData *getAppearanceData(const char *id);
-
-RECOMP_HOOK("Actor_Destroy") void onActor_Destroy(Actor *actor, PlayState *play) {
-    if (actor->init == NULL) {
-        if (actor->destroy != NULL) {
-            const char *id = NS_GetActorNetworkId(actor);
-
-            if (id) {
-                AppearanceData *data = getAppearanceData(id);
-
-                if (data) {
-                    data->refCount--;
-
-                    if (data->refCount == 0) {
-                        destroyAppearanceData(id);
-                    }
-                }
-            }
-        }
-    }
-}
-
 // MARK: - Remote Actor Processing
 
 #define MAX_REMOTE_ACTORS 32 // matches the mod's MAX_SYNCED_ACTORS
 static char sRemoteActorIds[MAX_REMOTE_ACTORS][UUID_STRING_LENGTH];
 static u32 sRemoteActorCount = 0;
-
-static AppearanceData *createAppearanceData(void) {
-    AppearanceData *data = recomp_alloc(sizeof(AppearanceData));
-
-    data->refCount = 0;
-    data->handle = PlayerModelManager_ActorAppearanceData_createData();
-
-    if (!data->handle) {
-        recomp_free(data);
-        data = NULL;
-    }
-
-    return data;
-}
-
-static AppearanceData *getAppearanceData(const char *id) {
-    uintptr_t retrievedData = 0;
-
-    YAZMTCore_StringU32Dictionary_get(sIdToAppearanceData, id, &retrievedData);
-
-    return (AppearanceData *)retrievedData;
-}
-
-static AppearanceData *getOrCreateAppearanceData(const char *id) {
-    if (!YAZMTCore_StringU32Dictionary_contains(sIdToAppearanceData, id)) {
-        AppearanceData *data = createAppearanceData();
-
-        if (data) {
-            YAZMTCore_StringU32Dictionary_set(sIdToAppearanceData, id, (uintptr_t)data);
-        }
-    }
-
-    return getAppearanceData(id);
-}
-
-static void destroyAppearanceData(const char *id) {
-    AppearanceData *data = getAppearanceData(id);
-
-    if (data) {
-        PlayerModelManager_ActorAppearanceData_releaseHandle(data->handle);
-        YAZMTCore_StringU32Dictionary_unset(sIdToAppearanceData, id);
-        data->handle = 0;
-        data->refCount = 0;
-        recomp_free(data);
-    }
-}
 
 // Checks whether we need to create or destroy actors
 void remote_actors_update(PlayState *play) {
@@ -304,14 +220,13 @@ void remote_actors_update(PlayState *play) {
                 const char *remoteId = sRemoteActorIds[i];
 
                 if (actorNetworkId != NULL && remoteId != NULL && strcmp(actorNetworkId, remoteId) == 0) {
-                    if (!PlayerModelManager_Actor_hasAppearanceData(actor)) {
-                        recomp_printf("Attempting to assign appearance data...\n");
+                    ActorAppearanceDataHandle h = AppearanceDataManager_getAppearanceDataAndRefreshLifetime(actorNetworkId);
 
-                        AppearanceData *data = getOrCreateAppearanceData(actorNetworkId);
+                    if (h && !PlayerModelManager_Actor_hasAppearanceData(actor)) {
+                        recomp_printf("Attempting to assign appearance data to %s...\n", actorNetworkId);
 
-                        if (data) {
-                            data->refCount++;
-                            PlayerModelManager_ActorAppearanceData_assignDataToActor(actor, data->handle);
+                        if (h) {
+                            PlayerModelManager_ActorAppearanceData_assignDataToActor(actor, h);
                         }
                     }
 

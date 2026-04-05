@@ -3,6 +3,10 @@
 #include "playermodelmanager_api.h"
 
 RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_Actor_setFormModelType(Actor *actor, PlayerModelManagerModelType type));
+RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_AppearanceData_getTunicColor(ActorAppearanceDataHandle h, PlayerModelManagerModelType type, Color_RGBA8 *out));
+RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, const char *PlayerModelManager_AppearanceData_getModelName(ActorAppearanceDataHandle h, PlayerModelManagerModelType type));
+RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, bool PlayerModelManager_Actor_getTunicColor(Actor *actor, Color_RGBA8 *out));
+RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, void PlayerModelManager_updatePlayerAssets(Player *player));
 
 #define FLAGS                                                                                  \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_FRIENDLY | ACTOR_FLAG_UPDATE_CULLING_DISABLED | \
@@ -19,7 +23,7 @@ ActorProfile RemotePlayer_InitVars = {
     /**/ ACTORCAT_PLAYER,
     /**/ FLAGS,
     /**/ GAMEPLAY_KEEP,
-    /**/ sizeof(Player),
+    /**/ sizeof(RemotePlayer),
     /**/ RemotePlayer_Init,
     /**/ RemotePlayer_Destroy,
     /**/ RemotePlayer_Update,
@@ -48,7 +52,8 @@ static void setGfxObjDependency(PlayState *play, void *obj) {
 }
 
 void RemotePlayer_Init(Actor *thisx, PlayState *play) {
-    Player *player = (Player *)thisx;
+    RemotePlayer *this = (RemotePlayer *)thisx;
+    Player *player = &this->player;
 
     // Primarily modeled after EnTest3_Init and Player_Init
     player->csId = CS_ID_NONE;
@@ -81,7 +86,8 @@ void RemotePlayer_Init(Actor *thisx, PlayState *play) {
 }
 
 void RemotePlayer_Destroy(Actor *thisx, PlayState *play) {
-    Player *player = (Player *)thisx;
+    RemotePlayer *this = (RemotePlayer *)thisx;
+    Player *player = &this->player;
 
     forceObjectDependency(sPlayerObjects[player->transformation]);
 
@@ -89,7 +95,8 @@ void RemotePlayer_Destroy(Actor *thisx, PlayState *play) {
 }
 
 void RemotePlayer_Update(Actor *thisx, PlayState *play) {
-    Player *player = (Player *)thisx;
+    RemotePlayer *this = (RemotePlayer *)thisx;
+    Player *player = &this->player;
 
     forceObjectDependency(sPlayerObjects[player->transformation]);
 
@@ -113,17 +120,28 @@ void RemotePlayer_Update(Actor *thisx, PlayState *play) {
     PlayerModelManager_Actor_setFormModelType(&player->actor, transformationToModelType[player->transformation]);
 }
 
-RECOMP_IMPORT(YAZMT_PMM_MOD_NAME, void PlayerModelManager_updatePlayerAssets(Player *player));
+s32 RemotePlayer_OverrideLimbDrawGameplayDefault(PlayState *play, s32 limbIndex, Gfx **dList, Vec3f *pos, Vec3s *rot, Actor *actor) {
+    return Player_OverrideLimbDrawGameplayDefault(play, limbIndex, dList, pos, rot, actor);
+}
 
 void RemotePlayer_Draw(Actor *thisx, PlayState *play) {
-    Player *player = (Player *)thisx;
+    RemotePlayer *this = (RemotePlayer *)thisx;
+    Player *player = &this->player;
 
     forceObjectDependency(sPlayerObjects[player->transformation]);
     setGfxObjDependency(play, sPlayerObjects[player->transformation]);
+
+    Color_RGBA8 tunicColor;
+
+    if (PlayerModelManager_Actor_getTunicColor(thisx, &tunicColor)) {
+        OPEN_DISPS(play->state.gfxCtx);
+        gDPSetEnvColor(POLY_OPA_DISP++, tunicColor.r, tunicColor.g, tunicColor.b, tunicColor.a);
+        CLOSE_DISPS(play->state.gfxCtx);
+    }
 
     PlayerModelManager_updatePlayerAssets(player);
 
     Player_SetModelGroup(player, player->modelGroup);
 
-    Player_DrawGameplay(play, player, 1, gCullBackDList, Player_OverrideLimbDrawGameplayDefault);
+    Player_DrawGameplay(play, player, 1, gCullBackDList, RemotePlayer_OverrideLimbDrawGameplayDefault);
 }

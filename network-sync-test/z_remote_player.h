@@ -10,6 +10,10 @@
 extern PlayerAgeProperties sPlayerAgeProperties[PLAYER_FORM_MAX];
 extern ActorExtensionId REMOTE_PLAYER_ID_EXT;
 
+typedef struct RemotePlayer {
+    Player player;
+} RemotePlayer;
+
 PlayerAnimationHeader *Player_GetIdleAnim(Player *this);
 void Player_Anim_PlayOnceMorph(PlayState *play, Player *this, PlayerAnimationHeader *anim);
 PlayerAnimationHeader *func_8082ED20(Player *this);
