@@ -38,6 +38,7 @@ static NetworkExtendedActorData *GetActorNetworkData(Actor *actor) {
 // Be wary of changing the order of / adding members of the struct; padding may be needed for alignment
 typedef struct {
     Vec3f worldPosition;  // Generic
+    Vec3f actorScale;     // Generic
     f32 shapeYOffset;     // Generic
     s16 shapeFace;        // Generic
     Vec3s shapeRotation;  // Generic
@@ -145,6 +146,7 @@ void ActorSyncUpdate(PlayState *play, Actor *actor) {
     ActorSyncData *syncData = recomp_alloc(sizeof(ActorSyncData));
     Math_Vec3s_Copy(&syncData->shapeRotation, &actor->shape.rot);
     Math_Vec3f_Copy(&syncData->worldPosition, &actor->world.pos);
+    Math_Vec3f_Copy(&syncData->actorScale, &actor->scale);
     syncData->shapeFace = actor->shape.face;
     syncData->shapeYOffset = actor->shape.yOffset;
 
@@ -215,6 +217,7 @@ void ActorSyncProcessRemoteData(PlayState *play) {
                             // Update actor's position and rotation
                             Math_Vec3s_Copy(&actor->shape.rot, &remote_data.shapeRotation);
                             Math_Vec3f_Copy(&actor->world.pos, &remote_data.worldPosition);
+                            Math_Vec3f_Copy(&actor->scale, &remote_data.actorScale);
                             actor->shape.face = remote_data.shapeFace;
                             actor->shape.yOffset = remote_data.shapeYOffset;
 

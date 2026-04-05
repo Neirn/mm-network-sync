@@ -29,6 +29,7 @@ impl Actor {
 #[derive(Debug, Clone, Serialize, Deserialize, N64MemoryIO)]
 pub struct ActorGameData {
     pub world_position: Vec3f,
+    pub actor_scale: Vec3f,
     pub shape_y_offset: f32,
     pub shape_face: i16,
     pub shape_rotation: Vec3s,
