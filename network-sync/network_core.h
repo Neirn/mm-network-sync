@@ -21,7 +21,7 @@ RECOMP_IMPORT(".", u32 NetworkSyncGetRemoteActorIDs(u32 maxPlayers, char* idsBuf
 RECOMP_IMPORT(".", u32 NetworkSyncGetRemoteActorData(const char* actor_id, void* dataBuffer));
 RECOMP_IMPORT(".", u8 NetworkSyncEmitMessage(const char* messageId, u32 size, void* data));
 RECOMP_IMPORT(".", u32 NetworkSyncGetPendingMessageSize());
-RECOMP_IMPORT(".", u8 NetworkSyncGetMessage(void* buffer, u32 bufferSize, char* messageIdBuffer));
+RECOMP_IMPORT(".", u8 NetworkSyncGetMessage(char *senderIdBuffer, void* dataBuffer, u32 bufferSize, char* messageIdBuffer));
 
 // MARK: - Utils
 

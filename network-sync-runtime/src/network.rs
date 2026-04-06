@@ -1,9 +1,9 @@
 use anyhow::Result;
 use gamecore::network::NetworkModule;
 use network_sync_rs::messages::{
-    get_message_type, BasicMessageType, ClientActorUpdateMessage, ClientBasicMessage, ClientJoinSessionMessage,
-    ClientRegisterActorMessage, MessageType, RegisteredMessage, ServerSyncSessionMessage,
-    ServerWelcomeMessage,
+    get_message_type, BasicMessageType, ClientActorUpdateMessage, ClientBasicMessage,
+    ClientJoinSessionMessage, ClientRegisterActorMessage, MessageType, RegisteredMessage,
+    ServerSyncSessionMessage, ServerWelcomeMessage,
 };
 use network_sync_rs::{Actor, ActorGameData};
 use serde_json;
@@ -39,7 +39,7 @@ pub struct NetworkSyncModule {
     // Track local actors that we own
     local_actors: Vec<String>,
     /// Queue of (message_id, data) tuples
-    pub message_queue: VecDeque<(String, Vec<u8>)>,
+    pub message_queue: VecDeque<(String, String, Vec<u8>)>,
 }
 
 impl NetworkSyncModule {
@@ -233,7 +233,7 @@ impl NetworkSyncModule {
 
     // Get the size of the next message in the queue
     pub fn get_pending_message_size(&self) -> u32 {
-        if let Some((_, data)) = self.message_queue.front() {
+        if let Some((_, _, data)) = self.message_queue.front() {
             data.len() as u32
         } else {
             0 // No messages
@@ -241,17 +241,37 @@ impl NetworkSyncModule {
     }
 
     // Get the next message from the queue
-    pub fn get_message(&mut self, buffer: &mut [u8]) -> Option<String> {
-        if let Some((message_id, data)) = self.message_queue.pop_front() {
-            if buffer.len() >= data.len() {
-                buffer[..data.len()].copy_from_slice(&data);
+    pub fn get_message(
+        &mut self,
+        sender_id_buffer: &mut [u8],
+        data_buffer: &mut [u8],
+    ) -> Option<String> {
+        if let Some((sender_id, message_id, data)) = self.message_queue.pop_front() {
+            let is_data_buf_long_enough = data_buffer.len() < data.len();
+            let is_sender_id_buf_long_enough = sender_id_buffer.len() < sender_id.len();
+            let should_write = is_data_buf_long_enough && is_sender_id_buf_long_enough;
+
+            if !is_data_buf_long_enough {
+                log::error!(
+                    "Data buffer too small for message: {} > {}",
+                    data.len(),
+                    data_buffer.len()
+                );
+            }
+
+            if !is_sender_id_buf_long_enough {
+                log::error!(
+                    "Sender ID buffer too small for sender id: {} > {}",
+                    sender_id.len(),
+                    sender_id_buffer.len()
+                );
+            }
+
+            if should_write {
+                data_buffer[..data.len()].copy_from_slice(&data);
+                sender_id_buffer[..sender_id.len()].copy_from_slice(sender_id.as_bytes());
                 Some(message_id)
             } else {
-                log::error!(
-                    "Buffer too small for message: {} > {}",
-                    data.len(),
-                    buffer.len()
-                );
                 None
             }
         } else {
@@ -260,8 +280,8 @@ impl NetworkSyncModule {
     }
 
     // Queue a message
-    fn queue_message(&mut self, message_id: String, data: Vec<u8>) {
-        self.message_queue.push_back((message_id, data));
+    fn queue_message(&mut self, client_id: String, message_id: String, data: Vec<u8>) {
+        self.message_queue.push_back((client_id, message_id, data));
     }
 }
 
@@ -363,7 +383,7 @@ pub fn process_network_message(message: &str) -> Result<()> {
             }
 
             if let Ok(msg) = serde_json::from_str::<RegisteredMessage>(message) {
-                module.queue_message(msg.message_id.clone(), msg.data);
+                module.queue_message(msg.sender_id.clone(), msg.message_id.clone(), msg.data);
             }
         }
 

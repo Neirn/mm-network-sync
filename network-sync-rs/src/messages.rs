@@ -143,6 +143,7 @@ impl ServerSyncSessionMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisteredMessage {
+    pub sender_id: String,
     pub message_type: MessageType,
     pub message_id: String,
     pub data: Vec<u8>,
@@ -151,6 +152,7 @@ pub struct RegisteredMessage {
 impl RegisteredMessage {
     pub fn new(message_id: String, data: Vec<u8>) -> Self {
         Self {
+            sender_id: "".to_string(),
             message_type: MessageType::RegisteredMessage,
             message_id,
             data,

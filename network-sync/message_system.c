@@ -8,7 +8,7 @@
 typedef struct {
     char message_id[64];          // String identifier for the message
     u32 payload_size;             // Expected payload size
-    void (*callback)(void* data); // Callback function
+    void (*callback)(const char *senderId, void* data); // Callback function
 } MessageCallback;
 
 // Maximum number of message handlers we can register
@@ -81,18 +81,25 @@ void MessageSystemProcessPending() {
 
         // Allocate buffer for the message
         void* buffer = recomp_alloc(messageSize + sizeof(u32));
+        char senderId[UUID_STRING_LENGTH] = {0};
         char messageId[64] = {0};
 
         // Get the message and its ID
-        u8 success = NetworkSyncGetMessage(buffer, messageSize, messageId);
+        if (NetworkSyncGetMessage(senderId, buffer, messageSize, messageId)) {
+            // Find the callback for this message type
+            for (u32 i = 0; i < gMessageCallbackCount; i++) {
+                if (strcmp(gMessageCallbacks[i].message_id, messageId) == 0) {
+                    
+                    // ensure these buffers are NULL terminated
+                    senderId[ARRAY_COUNT(senderId) - 1] = '\0';
+                    messageId[ARRAY_COUNT(messageId) - 1] = '\0';
 
-        // Find the callback for this message type
-        for (u32 i = 0; i < gMessageCallbackCount; i++) {
-            if (strcmp(gMessageCallbacks[i].message_id, messageId) == 0) {
-                gMessageCallbacks[i].callback(buffer);
-                break;
+                    gMessageCallbacks[i].callback(senderId, buffer);
+                    break;
+                }
             }
         }
+
 
         // Free the buffer
         recomp_free(buffer);

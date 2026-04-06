@@ -338,20 +338,26 @@ pub extern "C" fn NetworkSyncGetPendingMessageSize(_rdram: *mut u8, ctx: *mut Re
 #[no_mangle]
 pub extern "C" fn NetworkSyncGetMessage(rdram: *mut u8, ctx: *mut RecompContext) {
     execute_safely(ctx, "NetworkSyncGetMessage", |ctx| {
-        let buffer_ptr = ctx.get_arg_u64(0);
-        let buffer_size = ctx.get_arg_u32(1) as usize;
-        let message_id_buffer = ctx.get_arg_u64(2);
+        let sender_id_ptr = ctx.get_arg_u64(0);
+        let buffer_ptr = ctx.get_arg_u64(1);
+        let buffer_size = ctx.get_arg_u32(2) as usize;
+        let message_id_buffer = ctx.get_arg_u64(3);
 
         // Create a buffer to hold the message data
-        let mut buffer = vec![0u8; buffer_size];
+        let mut data_buffer = vec![0u8; buffer_size];
+        let mut sender_id_buffer = vec![0u8; UUID_STRING_LENGTH];
 
         let message_id = with_network_sync_mut(
             |module| {
-                if let Some(id) = module.get_message(&mut buffer) {
+                if let Some(id) = module.get_message(&mut sender_id_buffer, &mut data_buffer) {
                     // Copy the data to the guest memory
                     unsafe {
-                        for (i, &byte) in buffer.iter().enumerate() {
+                        for (i, &byte) in data_buffer.iter().enumerate() {
                             mem_bu_write(rdram, buffer_ptr + i as u64, byte);
+                        }
+
+                        for (i, &byte) in sender_id_buffer.iter().enumerate() {
+                            mem_bu_write(rdram, sender_id_ptr + i as u64, byte);
                         }
                     }
                     Some(id)

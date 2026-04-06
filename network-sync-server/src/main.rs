@@ -652,7 +652,8 @@ async fn handle_connection(
                 }
 
                 Some(MessageType::RegisteredMessage) => {
-                    if let Ok(_) = serde_json::from_str::<RegisteredMessage>(&text) {
+                    if let Ok(mut msg) = serde_json::from_str::<RegisteredMessage>(&text) {
+                        msg.sender_id = connection_id.to_string();
                         if let Err(e) =
                             handle_registered_message(text, &connection_id, &state, &tx).await
                         {

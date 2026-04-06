@@ -38,7 +38,7 @@ void remote_actors_update(PlayState* play);
 
 typedef struct { u32 dummy_data; } ItemUsedMessage;
 
-void handle_item_used_message(void* data) {
+void handle_item_used_message(const char *senderId, void* data) {
     ItemUsedMessage* msg = (ItemUsedMessage*)data;
     Notifications_Emit(
         "", // Prefix (Purple)
