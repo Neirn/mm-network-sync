@@ -48,7 +48,7 @@ static NetworkExtendedActorData *GetActorNetworkData(Actor *actor) {
 
 // Must be kept in sync with ActorGameData in network-sync-rs/src/structs.rs !
 // Be wary of changing the order of / adding members of the struct; padding may be needed for alignment
-typedef struct {
+typedef struct ActorSyncData {
     // 4 byte aligned members
     Vec3f worldPosition;  // Generic
     Vec3f actorScale;     // Generic
@@ -143,7 +143,7 @@ void ActorSyncRegister(Actor *actor, const char *playerId, int isOwnedLocally) {
     if (playerId == NULL) {
         recomp_printf("WARNING: Registering actor with NULL playerId - generating new UUID\n");
 
-        char *playerIdBuffer = recomp_alloc(UUID_STRING_LENGTH);
+        char playerIdBuffer[UUID_STRING_LENGTH];
         u8 success = NetworkSyncGenerateUUID(playerIdBuffer);
 
         if (success) {
@@ -152,8 +152,6 @@ void ActorSyncRegister(Actor *actor, const char *playerId, int isOwnedLocally) {
         } else {
             recomp_printf("Failed to generate actor ID\n");
         }
-
-        recomp_free(playerIdBuffer);
     } else if (playerId != NULL) {
         recomp_printf("Registering actor with provided ID: %s\n", playerId);
         strcpy(netData->actor_id, playerId);
@@ -179,44 +177,43 @@ void ActorSyncUpdate(PlayState *play, Actor *actor) {
         return;
     }
 
-    ActorSyncData *syncData = recomp_alloc(sizeof(ActorSyncData));
-    Math_Vec3s_Copy(&syncData->shapeRotation, &actor->shape.rot);
-    Math_Vec3f_Copy(&syncData->worldPosition, &actor->world.pos);
-    Math_Vec3f_Copy(&syncData->actorScale, &actor->scale);
-    syncData->shapeFace = actor->shape.face;
-    syncData->shapeYOffset = actor->shape.yOffset;
+    static ActorSyncData syncData;
+    Math_Vec3s_Copy(&syncData.shapeRotation, &actor->shape.rot);
+    Math_Vec3f_Copy(&syncData.worldPosition, &actor->world.pos);
+    Math_Vec3f_Copy(&syncData.actorScale, &actor->scale);
+    syncData.shapeFace = actor->shape.face;
+    syncData.shapeYOffset = actor->shape.yOffset;
 
     if (actor->category == ACTORCAT_PLAYER) {
         Player *player = (Player *)actor;
-        syncData->currentMask = player->currentMask;
-        syncData->currentShield = player->currentShield;
-        syncData->modelGroup = player->modelGroup;
-        syncData->modelAnimType = player->modelAnimType;
-        syncData->transformation = player->transformation;
-        syncData->movementFlags = player->skelAnime.movementFlags;
-        syncData->isShielding = !!(player->stateFlags1 & PLAYER_STATE1_400000) && !Player_IsHoldingTwoHandedWeapon(player);
-        syncData->isGoronCurled = !!(player->stateFlags3 & PLAYER_STATE3_1000);
-        syncData->playerUnk_AB8 = player->unk_AB8;
+        syncData.currentMask = player->currentMask;
+        syncData.currentShield = player->currentShield;
+        syncData.modelGroup = player->modelGroup;
+        syncData.modelAnimType = player->modelAnimType;
+        syncData.transformation = player->transformation;
+        syncData.movementFlags = player->skelAnime.movementFlags;
+        syncData.isShielding = !!(player->stateFlags1 & PLAYER_STATE1_400000) && !Player_IsHoldingTwoHandedWeapon(player);
+        syncData.isGoronCurled = !!(player->stateFlags3 & PLAYER_STATE3_1000);
+        syncData.playerUnk_AB8 = player->unk_AB8;
 
-        for (int i = 0; i < ARRAY_COUNT(syncData->jointTable); i++) {
-            Math_Vec3s_Copy(&syncData->jointTable[i], &player->skelAnime.jointTable[i]);
+        for (int i = 0; i < ARRAY_COUNT(syncData.jointTable); i++) {
+            Math_Vec3s_Copy(&syncData.jointTable[i], &player->skelAnime.jointTable[i]);
         }
 
-        Math_Vec3s_Copy(&syncData->upperLimbRot, &player->upperLimbRot);
+        Math_Vec3s_Copy(&syncData.upperLimbRot, &player->upperLimbRot);
 
         PlayerExtensionData *playerExt = z64recomp_get_extended_actor_data(&player->actor, sPlayerExtension);
         
         if (playerExt) {
-            syncData->modelGroup = playerExt->mostRecentModelGroup;
+            syncData.modelGroup = playerExt->mostRecentModelGroup;
         }
 
         if (sIsBHTEnabled && player->transformation == PLAYER_FORM_HUMAN && BunnyHoodTweaks_isPlayerRunSpeedModified(play, player) && player->currentMask == PLAYER_MASK_NONE) {
-            syncData->currentMask = PLAYER_MASK_BUNNY;
+            syncData.currentMask = PLAYER_MASK_BUNNY;
         }
     }
 
-    NetworkSyncSendActorUpdate(netData->actor_id, syncData);
-    recomp_free(syncData);
+    NetworkSyncSendActorUpdate(netData->actor_id, &syncData);
 }
 
 void ActorSyncProcessRemoteData(PlayState *play) {

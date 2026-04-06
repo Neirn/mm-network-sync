@@ -25,6 +25,7 @@ impl Actor {
     }
 }
 
+// Must be kept in sync with the ActorSyncData in network-sync/actor_sync.c
 #[repr(C)]
 #[derive(Debug, Clone, Serialize, Deserialize, N64MemoryIO)]
 pub struct ActorGameData {
